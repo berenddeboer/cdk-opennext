@@ -1,6 +1,16 @@
 {
   "dependencies": [
     {
+      "name": "@commitlint/cli",
+      "version": "^19",
+      "type": "build"
+    },
+    {
+      "name": "@commitlint/config-conventional",
+      "version": "^19",
+      "type": "build"
+    },
+    {
       "name": "@types/jest",
       "type": "build"
     },
@@ -41,6 +51,11 @@
     },
     {
       "name": "eslint",
+      "version": "^9",
+      "type": "build"
+    },
+    {
+      "name": "husky",
       "version": "^9",
       "type": "build"
     },

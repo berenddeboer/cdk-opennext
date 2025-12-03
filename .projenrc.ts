@@ -24,7 +24,20 @@ const project = new awscdk.AwsCdkConstructLibrary({
 
   // deps: [],                /* Runtime dependencies of this module. */
   description: "AWS CDK construct for deploying Next.js applications with OpenNext",
-  // devDeps: [],             /* Build dependencies for this module. */
+  devDeps: ["husky@^9", "@commitlint/cli@^19", "@commitlint/config-conventional@^19"],
   // packageName: undefined,  /* The "name" in package.json. */
 })
+
+// Add npm scripts for husky and commitlint
+project.addScripts({
+  prepare: "husky",
+})
+
+// Add commitlint configuration
+project.addFields({
+  commitlint: {
+    extends: ["@commitlint/config-conventional"],
+  },
+})
+
 project.synth()
