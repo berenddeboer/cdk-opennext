@@ -502,9 +502,11 @@ describe("NextjsSite", () => {
     it("should add custom environment variables to the default server function", () => {
       new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
-        environment: {
-          CUSTOM_VAR: "custom-value",
-          ANOTHER_VAR: "another-value",
+        defaultFunctionProps: {
+          environment: {
+            CUSTOM_VAR: "custom-value",
+            ANOTHER_VAR: "another-value",
+          },
         },
       })
 
@@ -524,9 +526,11 @@ describe("NextjsSite", () => {
     it("should not allow custom environment variables to overwrite defaults", () => {
       new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
-        environment: {
-          CACHE_BUCKET_NAME: "should-not-overwrite",
-          CUSTOM_VAR: "custom-value",
+        defaultFunctionProps: {
+          environment: {
+            CACHE_BUCKET_NAME: "should-not-overwrite",
+            CUSTOM_VAR: "custom-value",
+          },
         },
       })
 

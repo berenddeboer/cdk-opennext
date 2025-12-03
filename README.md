@@ -23,7 +23,33 @@ npm install esbuild @opennextjs/aws cdk-opennext
 
 3. Build with open-next: `npx open-next build`
 
-4. Add the `NextjsSite` construct.
+4. Add the `NextjsSite` construct:
+
+```typescript
+import { NextjsSite } from "cdk-opennext"
+
+const site = new NextjsSite(this, "NextjsSite", {
+  openNextPath: ".open-next",
+})
+```
+
+You can customize the Lambda function configuration using `defaultFunctionProps`:
+
+```typescript
+import { NextjsSite } from "cdk-opennext"
+import { Duration } from "aws-cdk-lib/core"
+
+const site = new NextjsSite(this, "NextjsSite", {
+  openNextPath: ".open-next",
+  defaultFunctionProps: {
+    memorySize: 2048,
+    timeout: Duration.seconds(30),
+    environment: {
+      MY_ENV_VAR: "value",
+    },
+  },
+})
+```
 
 # How it works
 
@@ -36,9 +62,8 @@ of this construct. Therefore this package does not pull in the
 Switching to this construct is a fairly major update. All functions will be replaced.
 
 Not yet implemented functionality:
+
 - [ ] Warmer function
-- [ ] Architecture
-- [ ] Memory
 - [ ] Many improvements could be made
 
 # Comparison to other implementations

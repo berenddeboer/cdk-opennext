@@ -24,6 +24,7 @@ import { type IGrantable } from "aws-cdk-lib/aws-iam"
 import {
   Code,
   Function as CdkFunction,
+  type FunctionOptions,
   FunctionUrlAuthType,
   InvokeMode,
   Runtime,
@@ -87,6 +88,19 @@ interface OpenNextOutput {
   }
 }
 
+/**
+ * Props for Lambda functions, excluding handler and code which are set by the construct.
+ * Extends FunctionOptions and adds runtime.
+ */
+export interface DefaultFunctionProps extends FunctionOptions {
+  /**
+   * The runtime environment for the Lambda function.
+   *
+   * @default Runtime.NODEJS_24_X
+   */
+  readonly runtime?: Runtime
+}
+
 export interface DistributionDomainProps {
   /**
    * The domain to be assigned to the website URL (ie. domain.com).
@@ -113,16 +127,17 @@ export interface NextjsSiteProps {
   readonly customDomain?: DistributionDomainProps
 
   /**
-   * An object with the key being the environment variable name.
-   */
-  readonly environment?: Record<string, string>
-
-  /**
    * Should point to the .open-next directory.
    *
    * @default ".open-next"
    */
   readonly openNextPath: string
+
+  /**
+   * Default props to apply to all Lambda functions created by this construct.
+   * These can be overridden by specific function configurations.
+   */
+  readonly defaultFunctionProps?: DefaultFunctionProps
 }
 
 export class NextjsSite extends Construct {
@@ -278,18 +293,24 @@ export class NextjsSite extends Construct {
         originId: "S3Bucket",
         originPath: s3Origin.originPath,
       }),
-      default: this.createFunctionOrigin("default", defaultOrigin, props, "NextJsServer"),
+      default: this.createFunctionOrigin(
+        "default",
+        defaultOrigin,
+        props.openNextPath,
+        "NextJsServer",
+        props.defaultFunctionProps
+      ),
       imageOptimizer: this.createFunctionOrigin(
         "imageOptimizer",
         imageOrigin,
-        props,
+        props.openNextPath,
         "ImageOptimizer"
       ),
       ...Object.entries(restOrigins).reduce(
         (acc, [key, value]) => {
           const originId = key.charAt(0).toUpperCase() + key.slice(1)
           if (value.type === "function") {
-            acc[key] = this.createFunctionOrigin(key, value, props, originId)
+            acc[key] = this.createFunctionOrigin(key, value, props.openNextPath, originId)
           }
           return acc
         },
@@ -347,20 +368,22 @@ export class NextjsSite extends Construct {
   private createFunctionOrigin(
     key: string,
     origin: OpenNextFunctionOrigin,
-    props: NextjsSiteProps,
-    originId?: string
+    openNextPath: string,
+    originId?: string,
+    fnProps?: DefaultFunctionProps
   ) {
     const environment = this.getEnvironment()
     const fn = new CdkFunction(this, `${key}Function`, {
-      runtime: Runtime.NODEJS_24_X,
-      architecture: Architecture.ARM_64,
+      ...fnProps,
+      runtime: fnProps?.runtime ?? Runtime.NODEJS_24_X,
+      architecture: fnProps?.architecture ?? Architecture.ARM_64,
+      memorySize: fnProps?.memorySize ?? 1024,
       handler: origin.handler,
-      code: Code.fromAsset(path.join(props.openNextPath, "..", origin.bundle)),
+      code: Code.fromAsset(path.join(openNextPath, "..", origin.bundle)),
       environment: {
-        ...props.environment,
+        ...fnProps?.environment,
         ...environment,
       },
-      memorySize: 1024,
     })
     const fnUrl = fn.addFunctionUrl({
       authType: FunctionUrlAuthType.NONE,
