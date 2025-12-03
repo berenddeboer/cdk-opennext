@@ -10,7 +10,7 @@
     ".gitignore",
     ".mergify.yml",
     ".prettierignore",
-    ".prettierrc.json",
+    ".prettierrc.yml",
     ".projen/deps.json",
     ".projen/files.json",
     ".projen/tasks.json",

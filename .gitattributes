@@ -13,7 +13,7 @@
 /.mergify.yml linguist-generated
 /.npmignore linguist-generated
 /.prettierignore linguist-generated
-/.prettierrc.json linguist-generated
+/.prettierrc.yml linguist-generated
 /.projen/** linguist-generated
 /.projen/deps.json linguist-generated
 /.projen/files.json linguist-generated

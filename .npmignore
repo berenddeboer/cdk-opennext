@@ -8,7 +8,7 @@ permissions-backup.acl
 /dist/version.txt
 /.mergify.yml
 /.prettierignore
-/.prettierrc.json
+/.prettierrc.yml
 /test/
 /tsconfig.dev.json
 /src/

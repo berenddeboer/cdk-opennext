@@ -1,5 +1,6 @@
 {
   "name": "cdk-opennext",
+  "description": "AWS CDK construct for deploying Next.js applications with OpenNext",
   "repository": {
     "type": "git",
     "url": "https://github.com/berend/cdk-opennext.git"
@@ -38,9 +39,9 @@
     "@types/node": "^24.10.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
-    "aws-cdk-lib": "2.1.0",
+    "aws-cdk-lib": "2.201.0",
     "commit-and-tag-version": "^12",
-    "constructs": "10.0.5",
+    "constructs": "10.3.0",
     "eslint": "^9",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.4",
@@ -60,8 +61,8 @@
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "aws-cdk-lib": "^2.1.0",
-    "constructs": "^10.0.5"
+    "aws-cdk-lib": "^2.201.0",
+    "constructs": "^10.3.0"
   },
   "keywords": [
     "cdk"
