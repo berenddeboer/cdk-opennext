@@ -33,6 +33,8 @@ const site = new NextjsSite(this, "NextjsSite", {
 })
 ```
 
+`openNextPath` is optional and defaults to ".open-next".
+
 You can customize the Lambda function configuration using `defaultFunctionProps`:
 
 ```typescript
@@ -40,7 +42,6 @@ import { NextjsSite } from "cdk-opennext"
 import { Duration } from "aws-cdk-lib/core"
 
 const site = new NextjsSite(this, "NextjsSite", {
-  openNextPath: ".open-next",
   defaultFunctionProps: {
     memorySize: 2048,
     timeout: Duration.seconds(30),
@@ -57,6 +58,90 @@ This package assumes that the Next and OpenNext build are done outside
 of this construct. Therefore this package does not pull in the
 `@opennextjs/aws` package, but it should be a dependency of your package.
 
+Obviously you don't wantt to build this manually all the time, that's
+where Nx comes in.
+
+## Use with Nx
+
+Configuring Nx is also covered in [the OpeNext documentation](https://opennext.js.org/aws/config/nx).
+
+In your Nx `project.json` add a "build" target to build next:
+
+```json
+"build": {
+  "options": {
+    "command": "next build"
+  },
+  "inputs": [
+    "default",
+    "^production",
+    "!{projectRoot}/.next",
+    "!{projectRoot}/.open-next",
+    "!{projectRoot}/open-next.config.ts",
+    "!{projectRoot}/cdk.json",
+    "!{projectRoot}/cdk.context.json"
+  ],
+  "outputs": ["{projectRoot}/.next"]
+},
+```
+
+If you enable caching, it will only build when your NextJs app has actually changed.
+
+Then add a target to build OpenNext:
+
+```json
+"build-open-next": {
+  "executor": "nx:run-commands",
+  "dependsOn": ["build"],
+  "cache": true,
+  "inputs": ["{projectRoot}/open-next.config.ts", "{projectRoot}/.next"],
+  "outputs": ["{projectRoot}/.open-next"],
+  "options": {
+    "cwd": "{projectRoot}",
+    "command": "open-next build"
+  }
+},
+```
+
+And finally for your cdk deploy target, depend on the open next build:
+
+```json
+"deploy": {
+  "dependsOn": ["build-open-next"]
+}
+```
+
+Set the output to standalone in `next.config.ts`, this is key:
+
+```ts
+const nextConfig: NextConfig = {
+  output: "standalone",
+  ...
+}
+```
+
+Your `open-next.config.ts` can look like this:
+
+```ts
+import type { OpenNextConfig } from "@opennextjs/aws/types/open-next"
+
+const config = {
+  default: {
+    install: {
+      packages: ["@swc/helpers@0.5.15", "styled-jsx@5.1.6", "@next/env@16.0.1", "pg"],
+      arch: "arm64",
+    },
+  },
+  buildCommand: "exit 0", // Nx builds Next for us
+  packageJsonPath: "../../", // Root directory of monorepo
+} satisfies OpenNextConfig
+
+export default config
+```
+
+The packages to install depend on your particular config. If you don't
+use postgres for example, remove "pg".
+
 # SST v2 compatibility
 
 Switching to this construct is a fairly major update. All functions will be replaced.
@@ -64,7 +149,6 @@ Switching to this construct is a fairly major update. All functions will be repl
 Not yet implemented functionality:
 
 - [ ] Warmer function
-- [ ] Many improvements could be made
 
 # Comparison to other implementations
 
