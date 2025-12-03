@@ -1107,22 +1107,9 @@ const nextjsSiteProps: NextjsSiteProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-opennext.NextjsSiteProps.property.openNextPath">openNextPath</a></code> | <code>string</code> | Should point to the .open-next directory. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.customDomain">customDomain</a></code> | <code><a href="#cdk-opennext.DistributionDomainProps">DistributionDomainProps</a></code> | The customDomain for this website. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.defaultFunctionProps">defaultFunctionProps</a></code> | <code><a href="#cdk-opennext.DefaultFunctionProps">DefaultFunctionProps</a></code> | Default props to apply to all Lambda functions created by this construct. |
-
----
-
-##### `openNextPath`<sup>Required</sup> <a name="openNextPath" id="cdk-opennext.NextjsSiteProps.property.openNextPath"></a>
-
-```typescript
-public readonly openNextPath: string;
-```
-
-- *Type:* string
-- *Default:* ".open-next"
-
-Should point to the .open-next directory.
+| <code><a href="#cdk-opennext.NextjsSiteProps.property.openNextPath">openNextPath</a></code> | <code>string</code> | Should point to the .open-next directory. |
 
 ---
 
@@ -1156,6 +1143,19 @@ public readonly defaultFunctionProps: DefaultFunctionProps;
 Default props to apply to all Lambda functions created by this construct.
 
 These can be overridden by specific function configurations.
+
+---
+
+##### `openNextPath`<sup>Optional</sup> <a name="openNextPath" id="cdk-opennext.NextjsSiteProps.property.openNextPath"></a>
+
+```typescript
+public readonly openNextPath: string;
+```
+
+- *Type:* string
+- *Default:* ".open-next"
+
+Should point to the .open-next directory.
 
 ---
 

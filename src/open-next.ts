@@ -131,7 +131,7 @@ export interface NextjsSiteProps {
    *
    * @default ".open-next"
    */
-  readonly openNextPath: string
+  readonly openNextPath?: string | undefined
 
   /**
    * Default props to apply to all Lambda functions created by this construct.
@@ -148,6 +148,8 @@ export class NextjsSite extends Construct {
 
   private staticCachePolicy: ICachePolicy
   private serverCachePolicy: CachePolicy
+
+  private openNextPath: string
 
   public readonly distribution: Distribution
   private _defaultServerFunction!: CdkFunction
@@ -169,8 +171,9 @@ export class NextjsSite extends Construct {
 
   constructor(scope: Construct, id: string, props: NextjsSiteProps) {
     super(scope, id)
+    this.openNextPath = props.openNextPath ?? ".open-next"
     this.openNextOutput = JSON.parse(
-      readFileSync(path.join(props.openNextPath, "open-next.output.json"), "utf-8")
+      readFileSync(path.join(this.openNextPath, "open-next.output.json"), "utf-8")
     ) as OpenNextOutput
 
     this._customDomainName = props.customDomain?.domainName
@@ -182,15 +185,15 @@ export class NextjsSite extends Construct {
       removalPolicy: RemovalPolicy.DESTROY,
       enforceSSL: true,
     })
-    this.table = this.createRevalidationTable(props)
-    this.queue = this.createRevalidationQueue(props)
+    this.table = this.createRevalidationTable()
+    this.queue = this.createRevalidationQueue()
 
     // Create certificate in us-east-1 for CloudFront (required for CloudFront)
     const certificate = props.customDomain
       ? this.createCertificate(props.customDomain)
       : undefined
 
-    const origins = this.createOrigins(props)
+    const origins = this.createOrigins(props.defaultFunctionProps)
     this.serverCachePolicy = this.createServerCachePolicy()
     this.staticCachePolicy = this.createStaticCachePolicy()
     this.distribution = this.createDistribution(origins, props, certificate)
@@ -219,7 +222,7 @@ export class NextjsSite extends Construct {
     })
   }
 
-  private createRevalidationTable(props: NextjsSiteProps) {
+  private createRevalidationTable() {
     const table = new Table(this, "RevalidationTable", {
       partitionKey: { name: "tag", type: AttributeType.STRING },
       sortKey: { name: "path", type: AttributeType.STRING },
@@ -243,7 +246,7 @@ export class NextjsSite extends Construct {
       description: "Next.js revalidation data insert",
       handler: initFn?.handler ?? "index.handler",
       // code: Code.fromAsset(initFn?.bundle ?? ""),
-      code: Code.fromAsset(path.join(props.openNextPath, "dynamodb-provider")),
+      code: Code.fromAsset(path.join(this.openNextPath, "dynamodb-provider")),
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       timeout: Duration.minutes(15),
@@ -273,7 +276,7 @@ export class NextjsSite extends Construct {
     return table
   }
 
-  private createOrigins(props: NextjsSiteProps) {
+  private createOrigins(defaultFunctionProps?: DefaultFunctionProps) {
     const {
       s3: s3Origin,
       default: defaultOrigin,
@@ -282,7 +285,7 @@ export class NextjsSite extends Construct {
     } = this.openNextOutput.origins
     for (const copy of s3Origin.copy) {
       new BucketDeployment(this, `OpenNextBucketDeployment${copy.from}`, {
-        sources: [Source.asset(path.join(props.openNextPath, "..", copy.from))],
+        sources: [Source.asset(path.join(this.openNextPath, "..", copy.from))],
         destinationBucket: this.bucket,
         destinationKeyPrefix: copy.to,
         prune: false,
@@ -296,21 +299,19 @@ export class NextjsSite extends Construct {
       default: this.createFunctionOrigin(
         "default",
         defaultOrigin,
-        props.openNextPath,
         "NextJsServer",
-        props.defaultFunctionProps
+        defaultFunctionProps
       ),
       imageOptimizer: this.createFunctionOrigin(
         "imageOptimizer",
         imageOrigin,
-        props.openNextPath,
         "ImageOptimizer"
       ),
       ...Object.entries(restOrigins).reduce(
         (acc, [key, value]) => {
           const originId = key.charAt(0).toUpperCase() + key.slice(1)
           if (value.type === "function") {
-            acc[key] = this.createFunctionOrigin(key, value, props.openNextPath, originId)
+            acc[key] = this.createFunctionOrigin(key, value, originId)
           }
           return acc
         },
@@ -320,7 +321,7 @@ export class NextjsSite extends Construct {
     return origins
   }
 
-  private createRevalidationQueue(props: NextjsSiteProps) {
+  private createRevalidationQueue() {
     const queue = new Queue(this, "RevalidationQueue", {
       fifo: true,
       receiveMessageWaitTime: Duration.seconds(20),
@@ -331,7 +332,7 @@ export class NextjsSite extends Construct {
       code: Code.fromAsset(
         this.openNextOutput.additionalProps?.revalidationFunction?.bundle
           ? path.join(
-              props.openNextPath,
+              this.openNextPath,
               "..",
               this.openNextOutput.additionalProps?.revalidationFunction?.bundle
             )
@@ -368,7 +369,6 @@ export class NextjsSite extends Construct {
   private createFunctionOrigin(
     key: string,
     origin: OpenNextFunctionOrigin,
-    openNextPath: string,
     originId?: string,
     fnProps?: DefaultFunctionProps
   ) {
@@ -379,7 +379,7 @@ export class NextjsSite extends Construct {
       architecture: fnProps?.architecture ?? Architecture.ARM_64,
       memorySize: fnProps?.memorySize ?? 1024,
       handler: origin.handler,
-      code: Code.fromAsset(path.join(openNextPath, "..", origin.bundle)),
+      code: Code.fromAsset(path.join(this.openNextPath, "..", origin.bundle)),
       environment: {
         ...fnProps?.environment,
         ...environment,
