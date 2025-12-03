@@ -8,8 +8,8 @@ monorepo](https://opennext.js.org/aws/config/nx).
 
 This OpenNext CDK construct is based on [the reference
 construct](https://opennext.js.org/aws/reference-implementation)
-provided by OpenNext. The deploy to ECS option has been removed, and
-the code updated.
+provided by OpenNext. The example has been modernised, and the deploy
+to ECS option has been removed.
 
 # Comparison to other implementations
 
