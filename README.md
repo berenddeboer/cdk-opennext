@@ -16,7 +16,7 @@ to ECS option has been removed.
 1. Install:
 
 ```sh
-npm install esbuild @opennextjs/aws cdk-opennext
+npm install --save-dev esbuild @opennextjs/aws cdk-opennext
 ```
 
 2. Build your app: `npx next build`
@@ -48,6 +48,84 @@ const site = new NextjsSite(this, "NextjsSite", {
     environment: {
       MY_ENV_VAR: "value",
     },
+  },
+})
+```
+
+## Custom Domain
+
+You can configure a custom domain in three ways:
+
+### Option 1: Route 53 Hosted Zone (automatic certificate and DNS)
+
+Provide a hosted zone and the construct will automatically create a DNS-validated
+certificate and set up A/AAAA records:
+
+```typescript
+import { NextjsSite } from "cdk-opennext"
+import { HostedZone } from "aws-cdk-lib/aws-route53"
+
+const hostedZone = HostedZone.fromLookup(this, "HostedZone", {
+  domainName: "example.com",
+})
+
+const site = new NextjsSite(this, "NextjsSite", {
+  customDomain: {
+    domainName: "app.example.com",
+    hostedZone: hostedZone,
+  },
+})
+```
+
+### Option 2: Bring Your Own Certificate (external DNS)
+
+Provide your own ACM certificate when DNS is managed externally. The certificate
+must be in us-east-1 for CloudFront:
+
+```typescript
+import { NextjsSite } from "cdk-opennext"
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
+
+const certificate = Certificate.fromCertificateArn(
+  this,
+  "Certificate",
+  "arn:aws:acm:us-east-1:123456789012:certificate/..."
+)
+
+const site = new NextjsSite(this, "NextjsSite", {
+  customDomain: {
+    domainName: "app.example.com",
+    certificate: certificate,
+  },
+})
+// Configure your DNS provider to point app.example.com to site.distribution.distributionDomainName
+```
+
+### Option 3: Bring Your Own Certificate with Route 53 DNS
+
+Provide both a certificate and hosted zone to use your own certificate while
+still having the construct manage DNS records:
+
+```typescript
+import { NextjsSite } from "cdk-opennext"
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
+import { HostedZone } from "aws-cdk-lib/aws-route53"
+
+const hostedZone = HostedZone.fromLookup(this, "HostedZone", {
+  domainName: "example.com",
+})
+
+const certificate = Certificate.fromCertificateArn(
+  this,
+  "Certificate",
+  "arn:aws:acm:us-east-1:123456789012:certificate/..."
+)
+
+const site = new NextjsSite(this, "NextjsSite", {
+  customDomain: {
+    domainName: "app.example.com",
+    hostedZone: hostedZone,
+    certificate: certificate,
   },
 })
 ```

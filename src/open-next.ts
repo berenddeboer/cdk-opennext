@@ -1,6 +1,6 @@
 import { readFileSync } from "fs"
 import * as path from "path"
-import { DnsValidatedCertificate } from "aws-cdk-lib/aws-certificatemanager"
+import { DnsValidatedCertificate, ICertificate } from "aws-cdk-lib/aws-certificatemanager"
 import {
   AllowedMethods,
   type BehaviorOptions,
@@ -111,8 +111,22 @@ export interface DistributionDomainProps {
 
   /**
    * Import the underlying Route 53 hosted zone.
+   *
+   * Required if `certificate` is not provided. When provided, a DNS-validated
+   * certificate will be created automatically and DNS aliases will be set up.
    */
-  readonly hostedZone: IHostedZone
+  readonly hostedZone?: IHostedZone
+
+  /**
+   * The ACM certificate to use for the custom domain.
+   *
+   * Required if `hostedZone` is not provided. The certificate must be in
+   * us-east-1 for CloudFront distributions.
+   *
+   * When provided without `hostedZone`, no DNS aliases will be created
+   * and you must configure DNS records externally.
+   */
+  readonly certificate?: ICertificate
 }
 
 export interface NextjsSiteProps {
@@ -178,6 +192,19 @@ export class NextjsSite extends Construct {
 
     this._customDomainName = props.customDomain?.domainName
 
+    // Validate customDomain props: either certificate or hostedZone must be provided
+    if (
+      props.customDomain &&
+      !props.customDomain.certificate &&
+      !props.customDomain.hostedZone
+    ) {
+      throw new Error(
+        "customDomain requires either a certificate or a hostedZone. " +
+          "Provide a hostedZone to automatically create a DNS-validated certificate, " +
+          "or provide your own certificate."
+      )
+    }
+
     this.bucket = new Bucket(this, "S3Bucket", {
       publicReadAccess: false,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
@@ -188,10 +215,15 @@ export class NextjsSite extends Construct {
     this.table = this.createRevalidationTable()
     this.queue = this.createRevalidationQueue()
 
-    // Create certificate in us-east-1 for CloudFront (required for CloudFront)
-    const certificate = props.customDomain
-      ? this.createCertificate(props.customDomain)
-      : undefined
+    // Use provided certificate or create one if hostedZone is available
+    const certificate =
+      props.customDomain?.certificate ??
+      (props.customDomain?.hostedZone
+        ? this.createCertificate(
+            props.customDomain.domainName,
+            props.customDomain.hostedZone
+          )
+        : undefined)
 
     const origins = this.createOrigins(props.defaultFunctionProps)
     this.serverCachePolicy = this.createServerCachePolicy()
@@ -212,12 +244,12 @@ export class NextjsSite extends Construct {
     }
   }
 
-  private createCertificate(domainProps: DistributionDomainProps) {
+  private createCertificate(domainName: string, hostedZone: IHostedZone) {
     // CloudFront requires certificates to be in us-east-1
     // DnsValidatedCertificate handles cross-region certificate creation automatically
     return new DnsValidatedCertificate(this, "Certificate", {
-      domainName: domainProps.domainName,
-      hostedZone: domainProps.hostedZone,
+      domainName,
+      hostedZone,
       region: "us-east-1",
     })
   }
@@ -404,7 +436,7 @@ export class NextjsSite extends Construct {
   private createDistribution(
     origins: Record<string, IOrigin>,
     props: NextjsSiteProps,
-    certificate?: DnsValidatedCertificate
+    certificate?: ICertificate
   ) {
     const cloudfrontFunction = new CloudfrontFunction(this, "CloudFrontFunction", {
       code: FunctionCode.fromInline(`

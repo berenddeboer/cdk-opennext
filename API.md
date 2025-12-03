@@ -1063,6 +1063,7 @@ const distributionDomainProps: DistributionDomainProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-opennext.DistributionDomainProps.property.domainName">domainName</a></code> | <code>string</code> | The domain to be assigned to the website URL (ie. domain.com). |
+| <code><a href="#cdk-opennext.DistributionDomainProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | The ACM certificate to use for the custom domain. |
 | <code><a href="#cdk-opennext.DistributionDomainProps.property.hostedZone">hostedZone</a></code> | <code>aws-cdk-lib.aws_route53.IHostedZone</code> | Import the underlying Route 53 hosted zone. |
 
 ---
@@ -1081,7 +1082,25 @@ Supports domains that are hosted either on [Route 53](https://aws.amazon.com/rou
 
 ---
 
-##### `hostedZone`<sup>Required</sup> <a name="hostedZone" id="cdk-opennext.DistributionDomainProps.property.hostedZone"></a>
+##### `certificate`<sup>Optional</sup> <a name="certificate" id="cdk-opennext.DistributionDomainProps.property.certificate"></a>
+
+```typescript
+public readonly certificate: ICertificate;
+```
+
+- *Type:* aws-cdk-lib.aws_certificatemanager.ICertificate
+
+The ACM certificate to use for the custom domain.
+
+Required if `hostedZone` is not provided. The certificate must be in
+us-east-1 for CloudFront distributions.
+
+When provided without `hostedZone`, no DNS aliases will be created
+and you must configure DNS records externally.
+
+---
+
+##### `hostedZone`<sup>Optional</sup> <a name="hostedZone" id="cdk-opennext.DistributionDomainProps.property.hostedZone"></a>
 
 ```typescript
 public readonly hostedZone: IHostedZone;
@@ -1090,6 +1109,9 @@ public readonly hostedZone: IHostedZone;
 - *Type:* aws-cdk-lib.aws_route53.IHostedZone
 
 Import the underlying Route 53 hosted zone.
+
+Required if `certificate` is not provided. When provided, a DNS-validated
+certificate will be created automatically and DNS aliases will be set up.
 
 ---
 

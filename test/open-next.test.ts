@@ -2,6 +2,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { Template, Match } from "aws-cdk-lib/assertions"
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Stack } from "aws-cdk-lib/core"
 import { NextjsSite } from "../src/open-next"
@@ -631,6 +632,120 @@ describe("NextjsSite", () => {
 
       expect(construct.customDomainUrl).toBe("https://app.example.com")
       expect(construct.url).toContain("https://")
+    })
+
+    it("should use provided certificate instead of creating one", () => {
+      const customStack = new Stack(undefined, undefined, {
+        env: { account: "123456789012", region: "us-east-1" },
+      })
+
+      // Import an existing certificate
+      const certificate = Certificate.fromCertificateArn(
+        customStack,
+        "Certificate",
+        "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+      )
+
+      new NextjsSite(customStack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        customDomain: {
+          domainName: "app.example.com",
+          certificate: certificate,
+        },
+      })
+
+      const template = Template.fromStack(customStack)
+
+      // Check that CloudFront distribution has the custom domain
+      template.hasResourceProperties("AWS::CloudFront::Distribution", {
+        DistributionConfig: {
+          Aliases: ["app.example.com"],
+        },
+      })
+
+      // No DnsValidatedCertificate custom resource should be created
+      const resources = template.findResources("AWS::CloudFormation::CustomResource")
+      const certResource = Object.values(resources).find(
+        (resource: any) =>
+          resource.Properties?.DomainName === "app.example.com" &&
+          resource.Properties?.Region === "us-east-1"
+      )
+      expect(certResource).toBeUndefined()
+
+      // No Route53 records should be created (no hostedZone provided)
+      template.resourceCountIs("AWS::Route53::RecordSet", 0)
+    })
+
+    it("should use provided certificate and create DNS records when both are provided", () => {
+      const customStack = new Stack(undefined, undefined, {
+        env: { account: "123456789012", region: "us-east-1" },
+      })
+
+      const hostedZone = HostedZone.fromHostedZoneAttributes(customStack, "HostedZone", {
+        hostedZoneId: "Z1234567890ABC",
+        zoneName: "example.com",
+      })
+
+      const certificate = Certificate.fromCertificateArn(
+        customStack,
+        "Certificate",
+        "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+      )
+
+      new NextjsSite(customStack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        customDomain: {
+          domainName: "app.example.com",
+          hostedZone: hostedZone,
+          certificate: certificate,
+        },
+      })
+
+      const template = Template.fromStack(customStack)
+
+      // Check that CloudFront distribution has the custom domain
+      template.hasResourceProperties("AWS::CloudFront::Distribution", {
+        DistributionConfig: {
+          Aliases: ["app.example.com"],
+        },
+      })
+
+      // No DnsValidatedCertificate custom resource should be created
+      const resources = template.findResources("AWS::CloudFormation::CustomResource")
+      const certResource = Object.values(resources).find(
+        (resource: any) =>
+          resource.Properties?.DomainName === "app.example.com" &&
+          resource.Properties?.Region === "us-east-1"
+      )
+      expect(certResource).toBeUndefined()
+
+      // Route53 records should be created
+      template.hasResourceProperties("AWS::Route53::RecordSet", {
+        Name: "app.example.com.",
+        Type: "A",
+        HostedZoneId: "Z1234567890ABC",
+      })
+
+      template.hasResourceProperties("AWS::Route53::RecordSet", {
+        Name: "app.example.com.",
+        Type: "AAAA",
+        HostedZoneId: "Z1234567890ABC",
+      })
+    })
+
+    it("should throw error when customDomain has neither certificate nor hostedZone", () => {
+      expect(() => {
+        new NextjsSite(stack, "TestOpenNext", {
+          openNextPath: openNextPath,
+          customDomain: {
+            domainName: "app.example.com",
+          },
+        })
+      }).toThrow(
+        "customDomain requires either a certificate or a hostedZone. " +
+          "Provide a hostedZone to automatically create a DNS-validated certificate, " +
+          "or provide your own certificate."
+      )
     })
   })
 })
