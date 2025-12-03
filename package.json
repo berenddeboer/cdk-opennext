@@ -3,7 +3,7 @@
   "description": "AWS CDK construct for deploying Next.js applications with OpenNext",
   "repository": {
     "type": "git",
-    "url": "https://github.com/berend/cdk-opennext.git"
+    "url": "https://github.com/berenddeboer/cdk-opennext.git"
   },
   "scripts": {
     "build": "npx projen build",

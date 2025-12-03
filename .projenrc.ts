@@ -20,7 +20,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     yaml: true,
   },
   projenrcTs: true,
-  repositoryUrl: "https://github.com/berend/cdk-opennext.git",
+  repositoryUrl: "https://github.com/berenddeboer/cdk-opennext.git",
 
   workflowNodeVersion: "24.x",
   npmTrustedPublishing: true,
