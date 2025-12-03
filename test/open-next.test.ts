@@ -3,9 +3,9 @@ import * as os from "os"
 import * as path from "path"
 import { Template, Match } from "aws-cdk-lib/assertions"
 import { Stack } from "aws-cdk-lib/core"
-import { OpenNextCdk } from "../src/open-next"
+import { NextjsSite } from "../src/open-next"
 
-describe("OpenNextCdk", () => {
+describe("NextjsSite", () => {
   let stack: Stack
   let testDir: string
   let openNextPath: string
@@ -118,8 +118,8 @@ describe("OpenNextCdk", () => {
   })
 
   describe("construct creation", () => {
-    it("should create OpenNextCdk construct successfully", () => {
-      const construct = new OpenNextCdk(stack, "TestOpenNext", {
+    it("should create NextjsSite construct successfully", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -131,7 +131,7 @@ describe("OpenNextCdk", () => {
 
   describe("infrastructure resources", () => {
     it("should create an S3 bucket with correct configuration", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -153,7 +153,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should create a DynamoDB table for revalidation", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -181,7 +181,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should create an SQS FIFO queue for revalidation", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -193,7 +193,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should create Lambda functions for server and image optimization", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -215,7 +215,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should create a revalidation function with SQS event source", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -227,7 +227,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should create a CloudFront distribution", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -253,7 +253,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should create a CloudFront function for request transformation", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -268,7 +268,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should grant proper permissions to Lambda functions", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -317,7 +317,7 @@ describe("OpenNextCdk", () => {
 
   describe("cache policies", () => {
     it("should create a server cache policy with correct configuration", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -347,7 +347,7 @@ describe("OpenNextCdk", () => {
 
   describe("bucket deployment", () => {
     it("should create bucket deployments for static assets", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -360,7 +360,7 @@ describe("OpenNextCdk", () => {
 
   describe("custom resource for revalidation initialization", () => {
     it("should create a custom resource for revalidation data initialization", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -372,7 +372,7 @@ describe("OpenNextCdk", () => {
     })
 
     it("should create an initialization Lambda function", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -388,7 +388,7 @@ describe("OpenNextCdk", () => {
 
   describe("function URLs", () => {
     it("should create function URLs with NONE auth type", () => {
-      new OpenNextCdk(stack, "TestOpenNext", {
+      new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 
@@ -457,7 +457,7 @@ describe("OpenNextCdk", () => {
       )
 
       const streamingStack = new Stack()
-      new OpenNextCdk(streamingStack, "TestOpenNext", {
+      new NextjsSite(streamingStack, "TestOpenNext", {
         openNextPath: streamingOpenNextPath,
       })
 
@@ -475,7 +475,7 @@ describe("OpenNextCdk", () => {
 
   describe("defaultServerFunction getter", () => {
     it("should expose the default server function", () => {
-      const construct = new OpenNextCdk(stack, "TestOpenNext", {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,
       })
 

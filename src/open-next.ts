@@ -84,14 +84,14 @@ interface OpenNextOutput {
   }
 }
 
-export interface OpenNextCdkProps {
+export interface NextjsSiteProps {
   /**
    * Should point to the .open-next directory.
    */
   readonly openNextPath: string
 }
 
-export class OpenNextCdk extends Construct {
+export class NextjsSite extends Construct {
   private openNextOutput: OpenNextOutput
   private bucket: Bucket
   private table: Table
@@ -107,7 +107,7 @@ export class OpenNextCdk extends Construct {
     return this._defaultServerFunction
   }
 
-  constructor(scope: Construct, id: string, props: OpenNextCdkProps) {
+  constructor(scope: Construct, id: string, props: NextjsSiteProps) {
     super(scope, id)
     this.openNextOutput = JSON.parse(
       readFileSync(path.join(props.openNextPath, "open-next.output.json"), "utf-8")
@@ -129,7 +129,7 @@ export class OpenNextCdk extends Construct {
     this.distribution = this.createDistribution(origins)
   }
 
-  private createRevalidationTable(props: OpenNextCdkProps) {
+  private createRevalidationTable(props: NextjsSiteProps) {
     const table = new Table(this, "RevalidationTable", {
       partitionKey: { name: "tag", type: AttributeType.STRING },
       sortKey: { name: "path", type: AttributeType.STRING },
@@ -183,7 +183,7 @@ export class OpenNextCdk extends Construct {
     return table
   }
 
-  private createOrigins(props: OpenNextCdkProps) {
+  private createOrigins(props: NextjsSiteProps) {
     const {
       s3: s3Origin,
       default: defaultOrigin,
@@ -224,7 +224,7 @@ export class OpenNextCdk extends Construct {
     return origins
   }
 
-  private createRevalidationQueue(props: OpenNextCdkProps) {
+  private createRevalidationQueue(props: NextjsSiteProps) {
     const queue = new Queue(this, "RevalidationQueue", {
       fifo: true,
       receiveMessageWaitTime: Duration.seconds(20),
@@ -272,7 +272,7 @@ export class OpenNextCdk extends Construct {
   private createFunctionOrigin(
     key: string,
     origin: OpenNextFunctionOrigin,
-    props: OpenNextCdkProps,
+    props: NextjsSiteProps,
     originId?: string
   ) {
     const environment = this.getEnvironment()
