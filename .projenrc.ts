@@ -22,6 +22,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
   projenrcTs: true,
   repositoryUrl: "https://github.com/berend/cdk-opennext.git",
 
+  workflowNodeVersion: "24.x",
+  npmTrustedPublishing: true,
+
   // deps: [],                /* Runtime dependencies of this module. */
   description: "AWS CDK construct for deploying Next.js applications with OpenNext",
   devDeps: ["husky@^9", "@commitlint/cli@^19", "@commitlint/config-conventional@^19"],
