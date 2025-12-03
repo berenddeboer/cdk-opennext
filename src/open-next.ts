@@ -1,5 +1,6 @@
 import { readFileSync } from "fs"
 import * as path from "path"
+import { DnsValidatedCertificate } from "aws-cdk-lib/aws-certificatemanager"
 import {
   AllowedMethods,
   type BehaviorOptions,
@@ -30,6 +31,8 @@ import {
 } from "aws-cdk-lib/aws-lambda"
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources"
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs"
+import { AaaaRecord, ARecord, IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53"
+import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets"
 import { BlockPublicAccess, Bucket } from "aws-cdk-lib/aws-s3"
 import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
 import { Queue } from "aws-cdk-lib/aws-sqs"
@@ -84,9 +87,40 @@ interface OpenNextOutput {
   }
 }
 
+export interface DistributionDomainProps {
+  /**
+   * The domain to be assigned to the website URL (ie. domain.com).
+   *
+   * Supports domains that are hosted either on [Route 53](https://aws.amazon.com/route53/) or externally.
+   */
+  readonly domainName: string
+
+  /**
+   * Import the underlying Route 53 hosted zone.
+   */
+  readonly hostedZone: IHostedZone
+}
+
 export interface NextjsSiteProps {
   /**
+   * The customDomain for this website. This domain must be hosted in
+   * route53, and we must be able to create an ACM certificate for this
+   * domain.
+   *
+   * Note that you can also migrate externally hosted domains to Route 53 by
+   * [following this guide](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/MigratingDNS.html).
+   */
+  readonly customDomain?: DistributionDomainProps
+
+  /**
+   * An object with the key being the environment variable name.
+   */
+  readonly environment?: Record<string, string>
+
+  /**
    * Should point to the .open-next directory.
+   *
+   * @default ".open-next"
    */
   readonly openNextPath: string
 }
@@ -102,9 +136,20 @@ export class NextjsSite extends Construct {
 
   public readonly distribution: Distribution
   private _defaultServerFunction!: CdkFunction
+  private _customDomainName?: string
 
   public get defaultServerFunction(): CdkFunction {
     return this._defaultServerFunction
+  }
+
+  public get url(): string {
+    return `https://${this.distribution.distributionDomainName}`
+  }
+
+  public get customDomainUrl(): string {
+    return this._customDomainName
+      ? `https://${this._customDomainName}`
+      : `https://${this.distribution.distributionDomainName}`
   }
 
   constructor(scope: Construct, id: string, props: NextjsSiteProps) {
@@ -113,7 +158,9 @@ export class NextjsSite extends Construct {
       readFileSync(path.join(props.openNextPath, "open-next.output.json"), "utf-8")
     ) as OpenNextOutput
 
-    this.bucket = new Bucket(this, "OpenNextBucket", {
+    this._customDomainName = props.customDomain?.domainName
+
+    this.bucket = new Bucket(this, "S3Bucket", {
       publicReadAccess: false,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       autoDeleteObjects: true,
@@ -123,10 +170,38 @@ export class NextjsSite extends Construct {
     this.table = this.createRevalidationTable(props)
     this.queue = this.createRevalidationQueue(props)
 
+    // Create certificate in us-east-1 for CloudFront (required for CloudFront)
+    const certificate = props.customDomain
+      ? this.createCertificate(props.customDomain)
+      : undefined
+
     const origins = this.createOrigins(props)
     this.serverCachePolicy = this.createServerCachePolicy()
     this.staticCachePolicy = this.createStaticCachePolicy()
-    this.distribution = this.createDistribution(origins)
+    this.distribution = this.createDistribution(origins, props, certificate)
+    if (props.customDomain && props.customDomain.hostedZone) {
+      new ARecord(this, "AliasRecord", {
+        zone: props.customDomain.hostedZone,
+        recordName: props.customDomain.domainName,
+        target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
+      })
+
+      new AaaaRecord(this, "AliasRecordAAAA", {
+        zone: props.customDomain.hostedZone,
+        recordName: props.customDomain.domainName,
+        target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
+      })
+    }
+  }
+
+  private createCertificate(domainProps: DistributionDomainProps) {
+    // CloudFront requires certificates to be in us-east-1
+    // DnsValidatedCertificate handles cross-region certificate creation automatically
+    return new DnsValidatedCertificate(this, "Certificate", {
+      domainName: domainProps.domainName,
+      hostedZone: domainProps.hostedZone,
+      region: "us-east-1",
+    })
   }
 
   private createRevalidationTable(props: NextjsSiteProps) {
@@ -154,7 +229,7 @@ export class NextjsSite extends Construct {
       handler: initFn?.handler ?? "index.handler",
       // code: Code.fromAsset(initFn?.bundle ?? ""),
       code: Code.fromAsset(path.join(props.openNextPath, "dynamodb-provider")),
-      runtime: Runtime.NODEJS_22_X,
+      runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       timeout: Duration.minutes(15),
       memorySize: 128,
@@ -277,11 +352,14 @@ export class NextjsSite extends Construct {
   ) {
     const environment = this.getEnvironment()
     const fn = new CdkFunction(this, `${key}Function`, {
-      runtime: Runtime.NODEJS_22_X,
+      runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       handler: origin.handler,
       code: Code.fromAsset(path.join(props.openNextPath, "..", origin.bundle)),
-      environment,
+      environment: {
+        ...props.environment,
+        ...environment,
+      },
       memorySize: 1024,
     })
     const fnUrl = fn.addFunctionUrl({
@@ -300,8 +378,12 @@ export class NextjsSite extends Construct {
     })
   }
 
-  private createDistribution(origins: Record<string, IOrigin>) {
-    const cloudfrontFunction = new CloudfrontFunction(this, "OpenNextCfFunction", {
+  private createDistribution(
+    origins: Record<string, IOrigin>,
+    props: NextjsSiteProps,
+    certificate?: DnsValidatedCertificate
+  ) {
+    const cloudfrontFunction = new CloudfrontFunction(this, "CloudFrontFunction", {
       code: FunctionCode.fromInline(`
 			function handler(event) {
 				var request = event.request;
@@ -317,7 +399,9 @@ export class NextjsSite extends Construct {
       },
     ]
 
-    const distribution = new Distribution(this, "OpenNextDistribution", {
+    const distribution = new Distribution(this, "Distribution", {
+      domainNames: props.customDomain ? [props.customDomain.domainName] : undefined,
+      certificate,
       defaultBehavior: {
         origin: origins.default!, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

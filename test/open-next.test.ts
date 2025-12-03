@@ -2,6 +2,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { Template, Match } from "aws-cdk-lib/assertions"
+import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Stack } from "aws-cdk-lib/core"
 import { NextjsSite } from "../src/open-next"
 
@@ -199,7 +200,7 @@ describe("NextjsSite", () => {
 
       const template = Template.fromStack(stack)
 
-      // Check for Lambda functions with nodejs22.x runtime
+      // Check for Lambda functions with nodejs24.x runtime
       const functions = template.findResources("AWS::Lambda::Function")
       const functionValues = Object.values(functions)
 
@@ -207,7 +208,7 @@ describe("NextjsSite", () => {
       expect(
         functionValues.some(
           (fn: any) =>
-            fn.Properties.Runtime === "nodejs22.x" &&
+            fn.Properties.Runtime === "nodejs24.x" &&
             fn.Properties.Handler === "index.handler" &&
             fn.Properties.MemorySize === 1024
         )
@@ -285,17 +286,30 @@ describe("NextjsSite", () => {
         },
       })
 
-      // Check IAM policies for DynamoDB access
+      // Check IAM policies for DynamoDB access - BatchGetItem, Query, GetItem, Scan
       template.hasResourceProperties("AWS::IAM::Policy", {
         PolicyDocument: {
           Statement: Match.arrayWith([
             Match.objectLike({
               Action: Match.arrayWith([
                 "dynamodb:BatchGetItem",
-                "dynamodb:GetRecords",
                 "dynamodb:Query",
                 "dynamodb:GetItem",
                 "dynamodb:Scan",
+              ]),
+            }),
+          ]),
+        },
+      })
+
+      // Check IAM policies for DynamoDB stream access - GetRecords, GetShardIterator
+      template.hasResourceProperties("AWS::IAM::Policy", {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Action: Match.arrayWith([
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator",
               ]),
             }),
           ]),
@@ -481,6 +495,138 @@ describe("NextjsSite", () => {
 
       expect(construct.defaultServerFunction).toBeDefined()
       expect(construct.defaultServerFunction.node.id).toContain("defaultFunction")
+    })
+  })
+
+  describe("custom environment variables", () => {
+    it("should add custom environment variables to the default server function", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        environment: {
+          CUSTOM_VAR: "custom-value",
+          ANOTHER_VAR: "another-value",
+        },
+      })
+
+      const template = Template.fromStack(stack)
+
+      // Check that custom environment variables are added to Lambda functions
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Environment: {
+          Variables: Match.objectLike({
+            CUSTOM_VAR: "custom-value",
+            ANOTHER_VAR: "another-value",
+          }),
+        },
+      })
+    })
+
+    it("should not allow custom environment variables to overwrite defaults", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        environment: {
+          CACHE_BUCKET_NAME: "should-not-overwrite",
+          CUSTOM_VAR: "custom-value",
+        },
+      })
+
+      const template = Template.fromStack(stack)
+
+      // Check that default environment variables take precedence
+      const functions = template.findResources("AWS::Lambda::Function")
+      const functionValues = Object.values(functions)
+
+      // Find the default server function (has memorySize 1024)
+      const serverFunction = functionValues.find(
+        (fn: any) => fn.Properties?.MemorySize === 1024
+      )
+
+      expect(serverFunction).toBeDefined()
+      const envVars = (serverFunction as any).Properties.Environment.Variables
+
+      // Custom var should be present
+      expect(envVars.CUSTOM_VAR).toBe("custom-value")
+
+      // Default var should NOT be overwritten
+      expect(envVars.CACHE_BUCKET_NAME).not.toBe("should-not-overwrite")
+      expect(envVars.CACHE_BUCKET_NAME).toBeDefined()
+    })
+  })
+
+  describe("custom domain configuration", () => {
+    it("should create certificate and DNS records when custom domain is provided", () => {
+      const customStack = new Stack(undefined, undefined, {
+        env: { account: "123456789012", region: "us-east-1" },
+      })
+
+      // Create a mock hosted zone
+      const hostedZone = HostedZone.fromHostedZoneAttributes(customStack, "HostedZone", {
+        hostedZoneId: "Z1234567890ABC",
+        zoneName: "example.com",
+      })
+
+      new NextjsSite(customStack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        customDomain: {
+          domainName: "app.example.com",
+          hostedZone: hostedZone,
+        },
+      })
+
+      const template = Template.fromStack(customStack)
+
+      // Check that a certificate custom resource is created (DnsValidatedCertificate creates a custom resource)
+      const resources = template.findResources("AWS::CloudFormation::CustomResource")
+      const certResource = Object.values(resources).find(
+        (resource: any) =>
+          resource.Properties?.DomainName === "app.example.com" &&
+          resource.Properties?.HostedZoneId === "Z1234567890ABC" &&
+          resource.Properties?.Region === "us-east-1"
+      )
+      expect(certResource).toBeDefined()
+
+      // Check that CloudFront distribution has the custom domain
+      template.hasResourceProperties("AWS::CloudFront::Distribution", {
+        DistributionConfig: {
+          Aliases: ["app.example.com"],
+        },
+      })
+
+      // Check that A record is created
+      template.hasResourceProperties("AWS::Route53::RecordSet", {
+        Name: "app.example.com.",
+        Type: "A",
+        HostedZoneId: "Z1234567890ABC",
+      })
+
+      // Check that AAAA record is created
+      template.hasResourceProperties("AWS::Route53::RecordSet", {
+        Name: "app.example.com.",
+        Type: "AAAA",
+        HostedZoneId: "Z1234567890ABC",
+      })
+    })
+
+    it("should expose custom domain URL", () => {
+      const customStack = new Stack(undefined, undefined, {
+        env: { account: "123456789012", region: "us-east-1" },
+      })
+
+      const hostedZone = HostedZone.fromHostedZoneAttributes(customStack, "HostedZone", {
+        hostedZoneId: "Z1234567890ABC",
+        zoneName: "example.com",
+      })
+
+      const construct = new NextjsSite(customStack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        customDomain: {
+          domainName: "app.example.com",
+          hostedZone: hostedZone,
+        },
+      })
+
+      expect(construct.customDomainUrl).toBe("https://app.example.com")
+      expect(construct.url).toContain("https://")
     })
   })
 })

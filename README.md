@@ -11,6 +11,36 @@ construct](https://opennext.js.org/aws/reference-implementation)
 provided by OpenNext. The example has been modernised, and the deploy
 to ECS option has been removed.
 
+# Usage
+
+1. Install:
+
+```sh
+npm install esbuild @opennextjs/aws cdk-opennext
+```
+
+2. Build your app: `npx next build`
+
+3. Build with open-next: `npx open-next build`
+
+4. Add the `NextjsSite` construct.
+
+# How it works
+
+This package assumes that the Next and OpenNext build are done outside
+of this construct. Therefore this package does not pull in the
+`@opennextjs/aws` package, but it should be a dependency of your package.
+
+# SST v2 compatibility
+
+Switching to this construct is a fairly major update. All functions will be replaced.
+
+Not yet implemented functionality:
+- [ ] Warmer function
+- [ ] Architecture
+- [ ] Memory
+- [ ] Many improvements could be made
+
 # Comparison to other implementations
 
 - [SST v2](https://github.com/sst/v2): this is what I used in the
@@ -18,9 +48,9 @@ to ECS option has been removed.
   and it's getting very hard to integrate in modern monorepos.
 - [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs/):
   seems actively maintained, but README.md feels very dated. It's now
-  also based on OpeNext but unclear how it tracks against OpeNext.
+  also based on OpenNext but unclear how it tracks against OpenNext.
 - [cdklabs/cdk-nextjs](https://github.com/cdklabs/cdk-nextjs): not
-  based on the OpeNext adapter. Needs NAT gateway and EFS, so very
+  based on the OpenNext adapter. Needs NAT gateway and EFS, so very
   expensive to run.
 - [open-next-cdk](https://github.com/datasprayio/open-next-cdk): no
   longer maintained it seems
