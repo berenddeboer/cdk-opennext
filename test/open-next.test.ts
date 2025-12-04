@@ -1,10 +1,10 @@
 import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
-import { Template, Match } from "aws-cdk-lib/assertions"
+import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
-import { Stack } from "aws-cdk-lib/core"
+import { Duration, Stack } from "aws-cdk-lib/core"
 import { NextjsSite } from "../src/open-next"
 
 describe("NextjsSite", () => {
@@ -745,6 +745,352 @@ describe("NextjsSite", () => {
         "customDomain requires either a certificate or a hostedZone. " +
           "Provide a hostedZone to automatically create a DNS-validated certificate, " +
           "or provide your own certificate."
+      )
+    })
+  })
+
+  describe("Lambda warming", () => {
+    let warmerTestDir: string
+    let warmerOpenNextPath: string
+
+    beforeAll(() => {
+      // Create temporary directory with warmer support
+      warmerTestDir = fs.mkdtempSync(path.join(os.tmpdir(), "warmer-test-"))
+      warmerOpenNextPath = path.join(warmerTestDir, ".open-next")
+
+      // Create necessary directories
+      fs.mkdirSync(warmerOpenNextPath, { recursive: true })
+      fs.mkdirSync(path.join(warmerTestDir, "assets"), { recursive: true })
+      fs.mkdirSync(path.join(warmerTestDir, "server-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerTestDir, "image-optimization-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerTestDir, "revalidation-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerTestDir, "warmer-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerOpenNextPath, "dynamodb-provider"), {
+        recursive: true,
+      })
+
+      // Create dummy handler files
+      const dummyHandler = "exports.handler = async (event) => ({ statusCode: 200 });"
+      fs.writeFileSync(
+        path.join(warmerTestDir, "server-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerTestDir, "image-optimization-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerTestDir, "revalidation-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerTestDir, "warmer-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerOpenNextPath, "dynamodb-provider", "index.js"),
+        dummyHandler
+      )
+
+      // Create open-next.output.json with warmer
+      const outputWithWarmer = {
+        ...mockOpenNextOutput,
+        additionalProps: {
+          ...mockOpenNextOutput.additionalProps,
+          warmer: {
+            handler: "index.handler",
+            bundle: "warmer-function",
+          },
+        },
+      }
+      fs.writeFileSync(
+        path.join(warmerOpenNextPath, "open-next.output.json"),
+        JSON.stringify(outputWithWarmer)
+      )
+    })
+
+    afterAll(() => {
+      fs.rmSync(warmerTestDir, { recursive: true, force: true })
+    })
+
+    it("should create warmer by default with warm: 1", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check warmer function exists
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Description: "Next.js warmer",
+        Runtime: "nodejs24.x",
+        MemorySize: 128,
+        Timeout: 60, // 1 minute
+      })
+    })
+
+    it("should not create warmer when warm: false", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: false,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check that warmer function does not exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      const warmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("warmer")
+      })
+      expect(warmerFunction).toBeUndefined()
+
+      // No EventBridge rule should be created
+      expect(() => {
+        template.hasResourceProperties("AWS::Events::Rule", {
+          ScheduleExpression: Match.anyValue(),
+        })
+      }).toThrow()
+    })
+
+    it("should not create warmer when warm: 0", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: 0,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check that warmer function does not exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      const warmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("warmer")
+      })
+      expect(warmerFunction).toBeUndefined()
+
+      // No EventBridge rule should be created
+      expect(() => {
+        template.hasResourceProperties("AWS::Events::Rule", {
+          ScheduleExpression: Match.anyValue(),
+        })
+      }).toThrow()
+    })
+
+    it("should not create warmer when warm is negative", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: -5,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check that warmer function does not exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      const warmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("warmer")
+      })
+      expect(warmerFunction).toBeUndefined()
+    })
+
+    it("should create warmer with custom concurrency", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: 5,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Find warmer function and check WARM_PARAMS
+      const functions = template.findResources("AWS::Lambda::Function")
+      const warmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("Next.js warmer")
+      })
+
+      expect(warmerFunction).toBeDefined()
+      const envVars = (warmerFunction as any).Properties.Environment.Variables
+      expect(envVars.WARM_PARAMS).toBeDefined()
+
+      // WARM_PARAMS should contain JSON string with the right structure
+      const warmParamsStr =
+        typeof envVars.WARM_PARAMS === "string"
+          ? envVars.WARM_PARAMS
+          : JSON.stringify(envVars.WARM_PARAMS)
+
+      // Check that it contains expected values (may be a CDK token)
+      expect(warmParamsStr).toContain("concurrency")
+      expect(warmParamsStr).toContain("5")
+      expect(warmParamsStr).toContain("function")
+    })
+
+    it("should create EventBridge rule with default 5 minute interval", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      template.hasResourceProperties("AWS::Events::Rule", {
+        ScheduleExpression: "rate(5 minutes)",
+        State: "ENABLED",
+      })
+    })
+
+    it("should create EventBridge rule with custom interval", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warmerInterval: Duration.minutes(10),
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      template.hasResourceProperties("AWS::Events::Rule", {
+        ScheduleExpression: "rate(10 minutes)",
+      })
+    })
+
+    it("should grant invoke permissions to warmer function", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: 3,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check IAM policy for Lambda invoke permission
+      template.hasResourceProperties("AWS::IAM::Policy", {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Action: "lambda:InvokeFunction",
+              Effect: "Allow",
+            }),
+          ]),
+        },
+      })
+    })
+
+    it("should set WARMER_ENABLED environment variable on server function", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: 2,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Find server function (has memorySize 1024 by default)
+      const functions = template.findResources("AWS::Lambda::Function")
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.MemorySize === 1024
+      )
+
+      expect(serverFunction).toBeDefined()
+      const envVars = (serverFunction as any).Properties.Environment.Variables
+      expect(envVars.WARMER_ENABLED).toBe("true")
+    })
+
+    it("should create pre-warmer custom resource by default", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check for pre-warmer function
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Description: "Next.js pre-warmer",
+      })
+
+      // Check for custom resource
+      const resources = template.findResources("AWS::CloudFormation::CustomResource")
+      const prewarmerResource = Object.values(resources).find(
+        (resource: any) => resource.Properties?.FunctionName
+      )
+      expect(prewarmerResource).toBeDefined()
+    })
+
+    it("should not create pre-warmer when prewarmOnDeploy is false", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        prewarmOnDeploy: false,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check that pre-warmer function does not exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      const prewarmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("pre-warmer")
+      })
+      expect(prewarmerFunction).toBeUndefined()
+    })
+
+    it("should configure EventBridge rule with retryAttempts 0", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Find the EventBridge target configuration
+      template.hasResourceProperties("AWS::Events::Rule", {
+        Targets: Match.arrayWith([
+          Match.objectLike({
+            RetryPolicy: {
+              MaximumRetryAttempts: 0,
+            },
+          }),
+        ]),
+      })
+    })
+
+    it("should skip warmer creation when OpenNext does not provide warmer bundle", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: openNextPath, // Use the original path without warmer
+        warm: 3,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check that warmer function does not exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      const warmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("warmer")
+      })
+      expect(warmerFunction).toBeUndefined()
+
+      // Check that warning annotation was added
+      const annotations = Annotations.fromStack(warmerStack)
+      annotations.hasWarning(
+        "/Default/TestOpenNext",
+        Match.stringLikeRegexp(
+          ".*Warming is enabled but OpenNext did not provide a warmer bundle.*"
+        )
       )
     })
   })

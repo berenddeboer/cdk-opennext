@@ -1,3 +1,4 @@
+import { createHash } from "crypto"
 import { readFileSync } from "fs"
 import * as path from "path"
 import { DnsValidatedCertificate, ICertificate } from "aws-cdk-lib/aws-certificatemanager"
@@ -20,6 +21,8 @@ import {
 } from "aws-cdk-lib/aws-cloudfront"
 import { HttpOrigin, S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins"
 import { TableV2 as Table, AttributeType, Billing } from "aws-cdk-lib/aws-dynamodb"
+import { Rule, Schedule } from "aws-cdk-lib/aws-events"
+import { LambdaFunction } from "aws-cdk-lib/aws-events-targets"
 import { type IGrantable } from "aws-cdk-lib/aws-iam"
 import {
   Code,
@@ -37,7 +40,14 @@ import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets"
 import { BlockPublicAccess, Bucket } from "aws-cdk-lib/aws-s3"
 import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
 import { Queue } from "aws-cdk-lib/aws-sqs"
-import { CustomResource, Duration, Fn, RemovalPolicy, Stack } from "aws-cdk-lib/core"
+import {
+  Annotations,
+  CustomResource,
+  Duration,
+  Fn,
+  RemovalPolicy,
+  Stack,
+} from "aws-cdk-lib/core"
 import { Provider } from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 
@@ -152,6 +162,35 @@ export interface NextjsSiteProps {
    * These can be overridden by specific function configurations.
    */
   readonly defaultFunctionProps?: DefaultFunctionProps
+
+  /**
+   * The number of server instances to keep warm. Set to false to disable warming.
+   * Must be a positive integer (>= 1) if specified. Values <= 0 will disable warming.
+   *
+   * @default 1
+   * @example
+   * warm: 5 // Keep 5 concurrent instances warm
+   * warm: false // Disable warming
+   */
+  readonly warm?: number | false
+
+  /**
+   * How often to invoke the warmer function.
+   *
+   * @default Duration.minutes(5)
+   * @example
+   * warmerInterval: Duration.minutes(10)
+   */
+  readonly warmerInterval?: Duration
+
+  /**
+   * Whether to invoke the warmer function immediately after deployment.
+   *
+   * @default true
+   * @example
+   * prewarmOnDeploy: false
+   */
+  readonly prewarmOnDeploy?: boolean
 }
 
 export class NextjsSite extends Construct {
@@ -168,6 +207,8 @@ export class NextjsSite extends Construct {
   public readonly distribution: Distribution
   private _defaultServerFunction!: CdkFunction
   private _customDomainName?: string
+  private warmerFunction?: CdkFunction
+  private props: NextjsSiteProps
 
   public get defaultServerFunction(): CdkFunction {
     return this._defaultServerFunction
@@ -185,6 +226,7 @@ export class NextjsSite extends Construct {
 
   constructor(scope: Construct, id: string, props: NextjsSiteProps) {
     super(scope, id)
+    this.props = props
     this.openNextPath = props.openNextPath ?? ".open-next"
     this.openNextOutput = JSON.parse(
       readFileSync(path.join(this.openNextPath, "open-next.output.json"), "utf-8")
@@ -229,6 +271,7 @@ export class NextjsSite extends Construct {
     this.serverCachePolicy = this.createServerCachePolicy()
     this.staticCachePolicy = this.createStaticCachePolicy()
     this.distribution = this.createDistribution(origins, props, certificate)
+    this.createWarmer()
     if (props.customDomain && props.customDomain.hostedZone) {
       new ARecord(this, "AliasRecord", {
         zone: props.customDomain.hostedZone,
@@ -376,6 +419,130 @@ export class NextjsSite extends Construct {
     })
     consumer.addEventSource(new SqsEventSource(queue, { batchSize: 5 }))
     return queue
+  }
+
+  private createWarmer() {
+    // Default: warm: 1, users can disable with warm: false
+    const warmConcurrency = this.props.warm === false ? undefined : (this.props.warm ?? 1)
+
+    // Skip if warming is disabled or invalid
+    if (!warmConcurrency || warmConcurrency <= 0) return
+
+    // Get warmer bundle from OpenNext
+    const warmer = this.openNextOutput.additionalProps?.warmer
+    if (!warmer) {
+      Annotations.of(this).addWarning(
+        "Warming is enabled but OpenNext did not provide a warmer bundle. " +
+          "Skipping warmer creation. Ensure you're using OpenNext 3.x+ with warming support."
+      )
+      return
+    }
+
+    const warmerBundle = path.join(this.openNextPath, "..", warmer.bundle)
+    const warmerHandler = warmer.handler
+
+    // Configure WARM_PARAMS
+    const warmParams = [
+      {
+        concurrency: warmConcurrency,
+        function: this._defaultServerFunction.functionName,
+      },
+    ]
+
+    // Create warmer Lambda
+    this.warmerFunction = new CdkFunction(this, "WarmerFunction", {
+      description: "Next.js warmer",
+      handler: warmerHandler,
+      code: Code.fromAsset(warmerBundle),
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      timeout: Duration.minutes(1),
+      memorySize: 128,
+      environment: {
+        WARM_PARAMS: JSON.stringify(warmParams),
+      },
+    })
+
+    // Grant invoke permissions
+    this._defaultServerFunction.grantInvoke(this.warmerFunction)
+    this._defaultServerFunction.addEnvironment("WARMER_ENABLED", "true")
+
+    // Create EventBridge rule
+    const interval = this.props.warmerInterval ?? Duration.minutes(5)
+    new Rule(this, "WarmerRule", {
+      description: `Invoke warmer every ${interval.toMinutes()} minutes`,
+      schedule: Schedule.rate(interval),
+      targets: [new LambdaFunction(this.warmerFunction, { retryAttempts: 0 })],
+    })
+
+    // Create pre-warmer if enabled (default: true)
+    if (this.props.prewarmOnDeploy !== false) {
+      const prewarmerLogGroup = new LogGroup(this, "PrewarmerLogGroup", {
+        retention: RetentionDays.ONE_DAY,
+        removalPolicy: RemovalPolicy.DESTROY,
+      })
+
+      const prewarmerFn = new CdkFunction(this, "PrewarmerFunction", {
+        description: "Next.js pre-warmer",
+        handler: "index.handler",
+        code: Code.fromInline(`
+          const { LambdaClient, InvokeCommand } = require("@aws-sdk/client-lambda")
+          const lambda = new LambdaClient({})
+
+          exports.handler = async (event) => {
+            if (event.RequestType === "Delete") {
+              return { PhysicalResourceId: "prewarmer" }
+            }
+
+            try {
+              await lambda.send(
+                new InvokeCommand({
+                  FunctionName: event.ResourceProperties.FunctionName,
+                  InvocationType: "RequestResponse",
+                })
+              )
+            } catch (error) {
+              console.error("Pre-warming failed:", error)
+            }
+
+            return { PhysicalResourceId: "prewarmer" }
+          }
+        `),
+        runtime: Runtime.NODEJS_24_X,
+        architecture: Architecture.ARM_64,
+        timeout: Duration.minutes(2),
+        memorySize: 128,
+        logGroup: prewarmerLogGroup,
+      })
+
+      this.warmerFunction.grantInvoke(prewarmerFn)
+
+      const provider = new Provider(this, "PrewarmerProvider", {
+        onEventHandler: prewarmerFn,
+        logGroup: prewarmerLogGroup,
+      })
+
+      // Create a deterministic version hash based on warmer configuration
+      // This ensures pre-warming only triggers when config actually changes
+      const configHash = createHash("sha256")
+        .update(
+          JSON.stringify({
+            concurrency: warmConcurrency,
+            interval: interval.toMinutes(),
+            prewarmEnabled: this.props.prewarmOnDeploy,
+          })
+        )
+        .digest("hex")
+        .substring(0, 16) // Truncate for readability
+
+      new CustomResource(this, "PrewarmerResource", {
+        serviceToken: provider.serviceToken,
+        properties: {
+          FunctionName: this.warmerFunction.functionName,
+          Version: configHash,
+        },
+      })
+    }
   }
 
   private getEnvironment() {

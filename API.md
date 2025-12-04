@@ -1132,6 +1132,9 @@ const nextjsSiteProps: NextjsSiteProps = { ... }
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.customDomain">customDomain</a></code> | <code><a href="#cdk-opennext.DistributionDomainProps">DistributionDomainProps</a></code> | The customDomain for this website. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.defaultFunctionProps">defaultFunctionProps</a></code> | <code><a href="#cdk-opennext.DefaultFunctionProps">DefaultFunctionProps</a></code> | Default props to apply to all Lambda functions created by this construct. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.openNextPath">openNextPath</a></code> | <code>string</code> | Should point to the .open-next directory. |
+| <code><a href="#cdk-opennext.NextjsSiteProps.property.prewarmOnDeploy">prewarmOnDeploy</a></code> | <code>boolean</code> | Whether to invoke the warmer function immediately after deployment. |
+| <code><a href="#cdk-opennext.NextjsSiteProps.property.warm">warm</a></code> | <code>number \| boolean</code> | The number of server instances to keep warm. |
+| <code><a href="#cdk-opennext.NextjsSiteProps.property.warmerInterval">warmerInterval</a></code> | <code>aws-cdk-lib.Duration</code> | How often to invoke the warmer function. |
 
 ---
 
@@ -1180,6 +1183,70 @@ public readonly openNextPath: string;
 Should point to the .open-next directory.
 
 ---
+
+##### `prewarmOnDeploy`<sup>Optional</sup> <a name="prewarmOnDeploy" id="cdk-opennext.NextjsSiteProps.property.prewarmOnDeploy"></a>
+
+```typescript
+public readonly prewarmOnDeploy: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Whether to invoke the warmer function immediately after deployment.
+
+---
+
+*Example*
+
+```typescript
+prewarmOnDeploy: false
+```
+
+
+##### `warm`<sup>Optional</sup> <a name="warm" id="cdk-opennext.NextjsSiteProps.property.warm"></a>
+
+```typescript
+public readonly warm: number | boolean;
+```
+
+- *Type:* number | boolean
+- *Default:* 1
+
+The number of server instances to keep warm.
+
+Set to false to disable warming.
+Must be a positive integer (>= 1) if specified. Values <= 0 will disable warming.
+
+---
+
+*Example*
+
+```typescript
+warm: 5 // Keep 5 concurrent instances warm
+warm: false // Disable warming
+```
+
+
+##### `warmerInterval`<sup>Optional</sup> <a name="warmerInterval" id="cdk-opennext.NextjsSiteProps.property.warmerInterval"></a>
+
+```typescript
+public readonly warmerInterval: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.minutes(5)
+
+How often to invoke the warmer function.
+
+---
+
+*Example*
+
+```typescript
+warmerInterval: Duration.minutes(10)
+```
+
 
 
 
