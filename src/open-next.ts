@@ -40,7 +40,14 @@ import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets"
 import { BlockPublicAccess, Bucket } from "aws-cdk-lib/aws-s3"
 import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
 import { Queue } from "aws-cdk-lib/aws-sqs"
-import { CustomResource, Duration, Fn, RemovalPolicy, Stack } from "aws-cdk-lib/core"
+import {
+  Annotations,
+  CustomResource,
+  Duration,
+  Fn,
+  RemovalPolicy,
+  Stack,
+} from "aws-cdk-lib/core"
 import { Provider } from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 
@@ -423,7 +430,7 @@ export class NextjsSite extends Construct {
     // Get warmer bundle from OpenNext
     const warmer = this.openNextOutput.additionalProps?.warmer
     if (!warmer) {
-      console.warn(
+      Annotations.of(this).addWarning(
         "Warming is enabled but OpenNext did not provide a warmer bundle. " +
           "Skipping warmer creation. Ensure you're using OpenNext 3.x+ with warming support."
       )

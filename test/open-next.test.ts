@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
-import { Template, Match } from "aws-cdk-lib/assertions"
+import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Duration, Stack } from "aws-cdk-lib/core"
@@ -1068,9 +1068,6 @@ describe("NextjsSite", () => {
     })
 
     it("should skip warmer creation when OpenNext does not provide warmer bundle", () => {
-      // Spy on console.warn
-      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {})
-
       const warmerStack = new Stack()
       new NextjsSite(warmerStack, "TestOpenNext", {
         openNextPath: openNextPath, // Use the original path without warmer
@@ -1087,14 +1084,14 @@ describe("NextjsSite", () => {
       })
       expect(warmerFunction).toBeUndefined()
 
-      // Check that warning was logged
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "Warming is enabled but OpenNext did not provide a warmer bundle"
+      // Check that warning annotation was added
+      const annotations = Annotations.fromStack(warmerStack)
+      annotations.hasWarning(
+        "/Default/TestOpenNext",
+        Match.stringLikeRegexp(
+          ".*Warming is enabled but OpenNext did not provide a warmer bundle.*"
         )
       )
-
-      warnSpy.mockRestore()
     })
   })
 })
