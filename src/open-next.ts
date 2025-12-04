@@ -447,7 +447,7 @@ export class NextjsSite extends Construct {
       code: Code.fromAsset(warmerBundle),
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
-      timeout: Duration.minutes(15),
+      timeout: Duration.minutes(1),
       memorySize: 128,
       environment: {
         WARM_PARAMS: JSON.stringify(warmParams),
@@ -501,7 +501,7 @@ export class NextjsSite extends Construct {
         `),
         runtime: Runtime.NODEJS_24_X,
         architecture: Architecture.ARM_64,
-        timeout: Duration.minutes(5),
+        timeout: Duration.minutes(2),
         memorySize: 128,
         logGroup: prewarmerLogGroup,
       })

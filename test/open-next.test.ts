@@ -834,7 +834,7 @@ describe("NextjsSite", () => {
         Description: "Next.js warmer",
         Runtime: "nodejs24.x",
         MemorySize: 128,
-        Timeout: 900, // 15 minutes
+        Timeout: 60, // 1 minute
       })
     })
 
