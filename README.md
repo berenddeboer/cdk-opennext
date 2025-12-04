@@ -186,7 +186,7 @@ where Nx comes in.
 
 ## Use with Nx
 
-Configuring Nx is also covered in [the OpeNext documentation](https://opennext.js.org/aws/config/nx).
+Configuring Nx is also covered in [the OpenNext documentation](https://opennext.js.org/aws/config/nx).
 
 In your Nx `project.json` add a "build" target to build next:
 

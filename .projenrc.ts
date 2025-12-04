@@ -31,6 +31,14 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // packageName: undefined,  /* The "name" in package.json. */
 
   keywords: ["aws", "aws-cdk", "opennext", "open-next", "nextjs", "Next.js"],
+
+  githubOptions: {
+    pullRequestLintOptions: {
+      semanticTitleOptions: {
+        types: ["feat", "fix", "chore", "ci", "vendor"],
+      },
+    },
+  },
 })
 
 // Add npm scripts for husky and commitlint
