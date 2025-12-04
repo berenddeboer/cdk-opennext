@@ -30,6 +30,7 @@ import {
   type FunctionOptions,
   FunctionUrlAuthType,
   InvokeMode,
+  LoggingFormat,
   Runtime,
   Architecture,
 } from "aws-cdk-lib/aws-lambda"
@@ -326,6 +327,7 @@ export class NextjsSite extends Construct {
       architecture: Architecture.ARM_64,
       timeout: Duration.minutes(15),
       memorySize: 128,
+      loggingFormat: LoggingFormat.JSON,
       environment: {
         CACHE_DYNAMO_TABLE: table.tableName,
       },
@@ -413,9 +415,10 @@ export class NextjsSite extends Construct {
             )
           : ""
       ),
-      runtime: Runtime.NODEJS_22_X,
+      runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       timeout: Duration.seconds(30),
+      loggingFormat: LoggingFormat.JSON,
     })
     consumer.addEventSource(new SqsEventSource(queue, { batchSize: 5 }))
     return queue
@@ -458,6 +461,7 @@ export class NextjsSite extends Construct {
       architecture: Architecture.ARM_64,
       timeout: Duration.minutes(1),
       memorySize: 128,
+      loggingFormat: LoggingFormat.JSON,
       environment: {
         WARM_PARAMS: JSON.stringify(warmParams),
       },
@@ -512,6 +516,7 @@ export class NextjsSite extends Construct {
         architecture: Architecture.ARM_64,
         timeout: Duration.minutes(2),
         memorySize: 128,
+        loggingFormat: LoggingFormat.JSON,
         logGroup: prewarmerLogGroup,
       })
 
@@ -577,6 +582,7 @@ export class NextjsSite extends Construct {
       runtime: fnProps?.runtime ?? Runtime.NODEJS_24_X,
       architecture: fnProps?.architecture ?? Architecture.ARM_64,
       memorySize: fnProps?.memorySize ?? 1024,
+      loggingFormat: fnProps?.loggingFormat ?? LoggingFormat.JSON,
       handler: origin.handler,
       code: Code.fromAsset(path.join(this.openNextPath, "..", origin.bundle)),
       environment: {
