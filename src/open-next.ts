@@ -1,3 +1,4 @@
+import { createHash } from "crypto"
 import { readFileSync } from "fs"
 import * as path from "path"
 import { DnsValidatedCertificate, ICertificate } from "aws-cdk-lib/aws-certificatemanager"
@@ -512,11 +513,24 @@ export class NextjsSite extends Construct {
         logGroup: prewarmerLogGroup,
       })
 
+      // Create a deterministic version hash based on warmer configuration
+      // This ensures pre-warming only triggers when config actually changes
+      const configHash = createHash("sha256")
+        .update(
+          JSON.stringify({
+            concurrency: warmConcurrency,
+            interval: interval.toMinutes(),
+            prewarmEnabled: this.props.prewarmOnDeploy,
+          })
+        )
+        .digest("hex")
+        .substring(0, 16) // Truncate for readability
+
       new CustomResource(this, "PrewarmerResource", {
         serviceToken: provider.serviceToken,
         properties: {
           FunctionName: this.warmerFunction.functionName,
-          Version: Date.now().toString(),
+          Version: configHash,
         },
       })
     }
