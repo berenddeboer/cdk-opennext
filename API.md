@@ -1216,6 +1216,7 @@ public readonly warm: number | boolean;
 The number of server instances to keep warm.
 
 Set to false to disable warming.
+Must be a positive integer (>= 1) if specified. Values <= 0 will disable warming.
 
 ---
 
