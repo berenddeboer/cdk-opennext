@@ -69,7 +69,13 @@
     "constructs": "^10.4.3"
   },
   "keywords": [
-    "cdk"
+    "Next.js",
+    "aws",
+    "aws-cdk",
+    "cdk",
+    "nextjs",
+    "open-next",
+    "opennext"
   ],
   "main": "lib/index.js",
   "license": "Apache-2.0",
