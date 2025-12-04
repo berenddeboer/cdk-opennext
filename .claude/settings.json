@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git add:*)",
       "Bash(npx projen)",
       "Bash(npm run build:*)",
       "Bash(npm test:*)"
