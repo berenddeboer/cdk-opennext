@@ -52,6 +52,51 @@ const site = new NextjsSite(this, "NextjsSite", {
 })
 ```
 
+## Lambda Warming
+
+By default, Lambda warming is enabled to prevent cold starts. The construct keeps 1 server instance warm with 5-minute intervals.
+
+### Default Behavior
+
+```typescript
+import { NextjsSite } from "cdk-opennext"
+
+const site = new NextjsSite(this, "NextjsSite", {
+  // Warming is enabled by default with warm: 1
+})
+```
+
+### Customize Warming
+
+```typescript
+import { NextjsSite } from "cdk-opennext"
+import { Duration } from "aws-cdk-lib/core"
+
+const site = new NextjsSite(this, "NextjsSite", {
+  warm: 5, // Keep 5 concurrent instances warm
+  warmerInterval: Duration.minutes(10), // Warm every 10 minutes
+  prewarmOnDeploy: false, // Disable pre-warming on deployment
+})
+```
+
+### Disable Warming
+
+```typescript
+const site = new NextjsSite(this, "NextjsSite", {
+  warm: false, // Disable warming
+})
+```
+
+### How It Works
+
+- A dedicated warmer Lambda function (provided by OpenNext) periodically invokes your server functions
+- Creates concurrent invocations to keep multiple instances warm
+- EventBridge rule triggers the warmer at the specified interval
+- Optional pre-warming invokes the warmer immediately after deployment
+- Environment variable `WARMER_ENABLED=true` is set when warming is configured
+
+**Note**: Warming requires OpenNext 3.x+ with warmer support. If OpenNext doesn't provide a warmer bundle, warming will be skipped with a warning.
+
 ## Custom Domain
 
 You can configure a custom domain in three ways:
@@ -222,11 +267,42 @@ use postgres for example, remove "pg".
 
 # SST v2 compatibility
 
-Switching to this construct is a fairly major update. All functions will be replaced.
+Switching to this construct from SST v2 is a fairly major update. All Lambda functions will be replaced.
 
-Not yet implemented functionality:
+## Compatible Features
 
-- [ ] Warmer function
+- [x] Custom domains with Route 53 or external DNS
+- [x] Automatic certificate creation and DNS records
+- [x] S3 asset storage with Origin Access Control
+- [x] CloudFront distribution with custom behaviors
+- [x] Lambda server functions with streaming support
+- [x] Image optimization function
+- [x] Incremental Static Regeneration (ISR)
+- [x] Revalidation queue and DynamoDB table
+- [x] Multiple origins support
+- [x] Custom Lambda function configuration via `defaultFunctionProps`
+- [x] ARM64 architecture support
+- [x] Lambda warming to prevent cold starts (enabled by default)
+
+## Not Yet Implemented
+
+**Core Functions:**
+- [ ] Lambda@Edge deployment - Cannot deploy server to edge for lower latency
+- [ ] Middleware as edge functions - Middleware may not execute optimally
+
+**CloudFront:**
+- [ ] Advanced cache key generation - Current implementation uses basic x-forwarded-host only
+- [ ] Geo-location header injection - No CloudFront geo-headers passed to Lambda
+- [ ] Custom server cache policy configuration - Cache policy is hard-coded
+
+**Lambda Configuration:**
+- [ ] Image optimization configuration - No memorySize or staticImageOptimization options
+- [ ] VPC support for revalidation function
+- [ ] Custom runtime configuration - Defaults to Node.js 24.x
+- [ ] Dynamic memory allocation for initialization function - Fixed at 128 MB
+
+**Debugging:**
+- [ ] Sourcemap handling - Less detailed error reporting compared to SST v2
 
 # Comparison to other implementations
 
