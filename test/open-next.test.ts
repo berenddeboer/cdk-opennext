@@ -863,6 +863,49 @@ describe("NextjsSite", () => {
       }).toThrow()
     })
 
+    it("should not create warmer when warm: 0", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: 0,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check that warmer function does not exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      const warmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("warmer")
+      })
+      expect(warmerFunction).toBeUndefined()
+
+      // No EventBridge rule should be created
+      expect(() => {
+        template.hasResourceProperties("AWS::Events::Rule", {
+          ScheduleExpression: Match.anyValue(),
+        })
+      }).toThrow()
+    })
+
+    it("should not create warmer when warm is negative", () => {
+      const warmerStack = new Stack()
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warm: -5,
+      })
+
+      const template = Template.fromStack(warmerStack)
+
+      // Check that warmer function does not exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      const warmerFunction = Object.values(functions).find((fn: any) => {
+        const desc = fn.Properties?.Description
+        return typeof desc === "string" && desc.includes("warmer")
+      })
+      expect(warmerFunction).toBeUndefined()
+    })
+
     it("should create warmer with custom concurrency", () => {
       const warmerStack = new Stack()
       new NextjsSite(warmerStack, "TestOpenNext", {

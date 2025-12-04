@@ -417,7 +417,8 @@ export class NextjsSite extends Construct {
     // Default: warm: 1, users can disable with warm: false
     const warmConcurrency = this.props.warm === false ? undefined : (this.props.warm ?? 1)
 
-    if (!warmConcurrency) return
+    // Skip if warming is disabled or invalid
+    if (!warmConcurrency || warmConcurrency <= 0) return
 
     // Get warmer bundle from OpenNext
     const warmer = this.openNextOutput.additionalProps?.warmer
