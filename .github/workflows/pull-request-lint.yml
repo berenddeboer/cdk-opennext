@@ -27,4 +27,6 @@ jobs:
             feat
             fix
             chore
+            ci
+            vendor
           requireScope: false
