@@ -251,7 +251,7 @@ import type { OpenNextConfig } from "@opennextjs/aws/types/open-next"
 const config = {
   default: {
     install: {
-      packages: ["@swc/helpers@0.5.15", "styled-jsx@5.1.6", "@next/env@16.0.1", "pg"],
+      packages: ["@swc/helpers@0.5.17", "styled-jsx@5.1.6", "@next/env@16.0.7", "semver", "pg"],
       arch: "arm64",
     },
   },
