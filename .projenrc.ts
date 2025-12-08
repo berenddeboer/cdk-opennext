@@ -27,7 +27,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
 
   // deps: [],                /* Runtime dependencies of this module. */
   description: "AWS CDK construct for deploying Next.js applications with OpenNext",
-  devDeps: ["husky@^9", "@commitlint/cli@^19", "@commitlint/config-conventional@^19"],
+  devDeps: ["husky@^9", "@commitlint/cli@^20", "@commitlint/config-conventional@^20"],
   // packageName: undefined,  /* The "name" in package.json. */
 
   keywords: ["aws", "aws-cdk", "opennext", "open-next", "nextjs", "Next.js"],
@@ -50,6 +50,26 @@ project.addScripts({
 project.addFields({
   commitlint: {
     extends: ["@commitlint/config-conventional"],
+    rules: {
+      "type-enum": [
+        2,
+        "always",
+        [
+          "docs",
+          "feat",
+          "fix",
+          "chore",
+          "ci",
+          "vendor",
+          "build",
+          "perf",
+          "refactor",
+          "revert",
+          "style",
+          "test",
+        ],
+      ],
+    },
   },
 })
 

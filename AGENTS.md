@@ -29,3 +29,4 @@ CDK construct to deploy a Next.js 15+ application to AWS using the OpenNext AWS 
 
 - Managed by Projen - edit `.projenrc.ts` then run `npx projen` to regenerate config
 - Main export: `NextjsSite` construct (renamed from OpenNextCdk for SST v2 compatibility)
+- `package.json`: managed by projen, update via `.projenrc.ts`
