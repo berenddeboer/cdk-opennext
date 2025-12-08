@@ -606,6 +606,26 @@ export class NextjsSite extends Construct {
     })
   }
 
+  private getGeoHeadersInjection() {
+    return `
+if(request.headers["cloudfront-viewer-city"]) {
+  request.headers["x-open-next-city"] = request.headers["cloudfront-viewer-city"];
+}
+if(request.headers["cloudfront-viewer-country"]) {
+  request.headers["x-open-next-country"] = request.headers["cloudfront-viewer-country"];
+}
+if(request.headers["cloudfront-viewer-region"]) {
+  request.headers["x-open-next-region"] = request.headers["cloudfront-viewer-region"];
+}
+if(request.headers["cloudfront-viewer-latitude"]) {
+  request.headers["x-open-next-latitude"] = request.headers["cloudfront-viewer-latitude"];
+}
+if(request.headers["cloudfront-viewer-longitude"]) {
+  request.headers["x-open-next-longitude"] = request.headers["cloudfront-viewer-longitude"];
+}
+    `.trim()
+  }
+
   private createDistribution(
     origins: Record<string, IOrigin>,
     props: NextjsSiteProps,
@@ -616,6 +636,7 @@ export class NextjsSite extends Construct {
 			function handler(event) {
 				var request = event.request;
 				request.headers["x-forwarded-host"] = request.headers.host;
+				${this.getGeoHeadersInjection()}
 				return request;
 			}
 			`),

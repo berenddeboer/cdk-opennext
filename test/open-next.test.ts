@@ -269,6 +269,46 @@ describe("NextjsSite", () => {
       })
     })
 
+    it("should inject CloudFront geo-location headers", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+
+      // Verify geo-location header injection in CloudFront function
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("x-open-next-city"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("x-open-next-country"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("x-open-next-region"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("x-open-next-latitude"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("x-open-next-longitude"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("cloudfront-viewer-city"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("cloudfront-viewer-country"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("cloudfront-viewer-region"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("cloudfront-viewer-latitude"),
+      })
+      template.hasResourceProperties("AWS::CloudFront::Function", {
+        FunctionCode: Match.stringLikeRegexp("cloudfront-viewer-longitude"),
+      })
+    })
+
     it("should grant proper permissions to Lambda functions", () => {
       new NextjsSite(stack, "TestOpenNext", {
         openNextPath: openNextPath,

@@ -251,7 +251,13 @@ import type { OpenNextConfig } from "@opennextjs/aws/types/open-next"
 const config = {
   default: {
     install: {
-      packages: ["@swc/helpers@0.5.17", "styled-jsx@5.1.6", "@next/env@16.0.7", "semver", "pg"],
+      packages: [
+        "@swc/helpers@0.5.17",
+        "styled-jsx@5.1.6",
+        "@next/env@16.0.7",
+        "semver",
+        "pg",
+      ],
       arch: "arm64",
     },
   },
@@ -287,21 +293,25 @@ Switching to this construct from SST v2 is a fairly major update. All Lambda fun
 ## Not Yet Implemented
 
 **Core Functions:**
+
 - [ ] Lambda@Edge deployment - Cannot deploy server to edge for lower latency
 - [ ] Middleware as edge functions - Middleware may not execute optimally
 
 **CloudFront:**
+
 - [ ] Advanced cache key generation - Current implementation uses basic x-forwarded-host only
-- [ ] Geo-location header injection - No CloudFront geo-headers passed to Lambda
+- [x] Geo-location header injection - CloudFront geo-headers passed to Lambda
 - [ ] Custom server cache policy configuration - Cache policy is hard-coded
 
 **Lambda Configuration:**
+
 - [ ] Image optimization configuration - No memorySize or staticImageOptimization options
 - [ ] VPC support for revalidation function
 - [ ] Custom runtime configuration - Defaults to Node.js 24.x
 - [ ] Dynamic memory allocation for initialization function - Fixed at 128 MB
 
 **Debugging:**
+
 - [ ] Sourcemap handling - Less detailed error reporting compared to SST v2
 
 # Comparison to other implementations
