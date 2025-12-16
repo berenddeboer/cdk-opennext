@@ -1,4 +1,4 @@
-import { awscdk, javascript } from "projen"
+import { awscdk, javascript, github } from "projen"
 import { TrailingComma } from "projen/lib/javascript"
 const project = new awscdk.AwsCdkConstructLibrary({
   author: "Berend de Boer",
@@ -36,6 +36,17 @@ const project = new awscdk.AwsCdkConstructLibrary({
     pullRequestLintOptions: {
       semanticTitleOptions: {
         types: ["docs", "feat", "fix", "chore", "ci", "vendor"],
+      },
+    },
+  },
+  depsUpgradeOptions: {
+    workflowOptions: {
+      projenCredentials: github.GithubCredentials.fromPersonalAccessToken({
+        secret: "GITHUB_TOKEN",
+      }),
+      permissions: {
+        contents: github.workflows.JobPermission.WRITE,
+        pullRequests: github.workflows.JobPermission.WRITE,
       },
     },
   },
