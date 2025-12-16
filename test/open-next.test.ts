@@ -526,6 +526,36 @@ describe("NextjsSite", () => {
       // Cleanup
       fs.rmSync(streamingTestDir, { recursive: true, force: true })
     })
+
+    it("should create image optimizer function URL with IAM auth for OAC", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+
+      // Image optimizer should use AWS_IAM auth type for Origin Access Control
+      template.hasResourceProperties("AWS::Lambda::Url", {
+        AuthType: "AWS_IAM",
+      })
+    })
+
+    it("should create Origin Access Control for image optimizer", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+
+      // Verify OAC is created for Lambda function URL
+      template.hasResourceProperties("AWS::CloudFront::OriginAccessControl", {
+        OriginAccessControlConfig: {
+          OriginAccessControlOriginType: "lambda",
+          SigningBehavior: "always",
+          SigningProtocol: "sigv4",
+        },
+      })
+    })
   })
 
   describe("defaultServerFunction getter", () => {
