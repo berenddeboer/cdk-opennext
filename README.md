@@ -289,6 +289,7 @@ Switching to this construct from SST v2 is a fairly major update. All Lambda fun
 - [x] Custom Lambda function configuration via `defaultFunctionProps`
 - [x] ARM64 architecture support
 - [x] Lambda warming to prevent cold starts (enabled by default)
+- [x] Image optimizer function protected by Origin Access Control
 
 ## Not Yet Implemented
 
@@ -296,6 +297,7 @@ Switching to this construct from SST v2 is a fairly major update. All Lambda fun
 
 - [ ] Lambda@Edge deployment - Cannot deploy server to edge for lower latency
 - [ ] Middleware as edge functions - Middleware may not execute optimally
+- [ ] Protect default server function url so it cannot be access directly
 
 **CloudFront:**
 

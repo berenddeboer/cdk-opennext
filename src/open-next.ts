@@ -19,7 +19,11 @@ import {
   Function as CloudfrontFunction,
   FunctionCode,
 } from "aws-cdk-lib/aws-cloudfront"
-import { HttpOrigin, S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins"
+import {
+  FunctionUrlOrigin,
+  HttpOrigin,
+  S3BucketOrigin,
+} from "aws-cdk-lib/aws-cloudfront-origins"
 import { TableV2 as Table, AttributeType, Billing } from "aws-cdk-lib/aws-dynamodb"
 import { Rule, Schedule } from "aws-cdk-lib/aws-events"
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets"
@@ -379,11 +383,7 @@ export class NextjsSite extends Construct {
         "NextJsServer",
         defaultFunctionProps
       ),
-      imageOptimizer: this.createFunctionOrigin(
-        "imageOptimizer",
-        imageOrigin,
-        "ImageOptimizer"
-      ),
+      imageOptimizer: this.createImageOptimizerOrigin(imageOrigin),
       ...Object.entries(restOrigins).reduce(
         (acc, [key, value]) => {
           const originId = key.charAt(0).toUpperCase() + key.slice(1)
@@ -603,6 +603,38 @@ export class NextjsSite extends Construct {
 
     return new HttpOrigin(Fn.parseDomainName(fnUrl.url), {
       ...(originId ? { originId } : {}),
+    })
+  }
+
+  /**
+   * Creates the image optimizer Lambda function with Origin Access Control (OAC).
+   * OAC ensures that the image optimizer can only be accessed through CloudFront,
+   * preventing direct access to the Lambda function URL.
+   */
+  private createImageOptimizerOrigin(origin: OpenNextFunctionOrigin) {
+    const environment = this.getEnvironment()
+    const fn = new CdkFunction(this, "imageOptimizerFunction", {
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 1024,
+      loggingFormat: LoggingFormat.JSON,
+      handler: origin.handler,
+      code: Code.fromAsset(path.join(this.openNextPath, "..", origin.bundle)),
+      environment,
+    })
+
+    // Create function URL with IAM auth - required for OAC
+    const fnUrl = fn.addFunctionUrl({
+      authType: FunctionUrlAuthType.AWS_IAM,
+    })
+
+    this.grantPermissions(fn)
+
+    // Use FunctionUrlOrigin.withOriginAccessControl which:
+    // 1. Creates an OAC for Lambda function URLs
+    // 2. Grants CloudFront permission to invoke the function URL
+    return FunctionUrlOrigin.withOriginAccessControl(fnUrl, {
+      originId: "ImageOptimizer",
     })
   }
 
