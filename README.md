@@ -289,7 +289,7 @@ Switching to this construct from SST v2 is a fairly major update. All Lambda fun
 - [x] Custom Lambda function configuration via `defaultFunctionProps`
 - [x] ARM64 architecture support
 - [x] Lambda warming to prevent cold starts (enabled by default)
-- [x] Image optimizer function protected by Origin Access Control
+- [x] Image optimizer function protected by Origin Access Control (see [Known Issues](#known-issues))
 
 ## Not Yet Implemented
 
@@ -297,7 +297,7 @@ Switching to this construct from SST v2 is a fairly major update. All Lambda fun
 
 - [ ] Lambda@Edge deployment - Cannot deploy server to edge for lower latency
 - [ ] Middleware as edge functions - Middleware may not execute optimally
-- [ ] Protect default server function url so it cannot be access directly
+- [ ] Protect default server function URL so it cannot be accessed directly
 
 **CloudFront:**
 
@@ -315,6 +315,32 @@ Switching to this construct from SST v2 is a fairly major update. All Lambda fun
 **Debugging:**
 
 - [ ] Sourcemap handling - Less detailed error reporting compared to SST v2
+
+## Known Issues
+
+### Image Optimizer OAC Missing Permission
+
+The image optimizer function is protected by CloudFront Origin Access Control (OAC), which prevents direct access to the Lambda function URL. However, due to a [bug in AWS CDK](https://github.com/aws/aws-cdk/issues/35872), the generated Lambda resource-based policy is missing the required `lambda:InvokeFunction` permission.
+
+AWS Lambda introduced **Dual Authentication** for Function URLs, which requires **both** permissions:
+
+- `lambda:InvokeFunctionUrl`
+- `lambda:InvokeFunction` (with `invokedViaFunctionUrl: true` condition)
+
+The CDK currently only grants the first permission. A [fix has been submitted](https://github.com/aws/aws-cdk/pull/35919) and is awaiting maintainer review.
+
+**Workaround:** Until the CDK fix is released, you can manually add the missing permission after deployment:
+
+```bash
+aws lambda add-permission \
+  --statement-id "AllowCloudFrontServicePrincipalInvokeFunction" \
+  --action "lambda:InvokeFunction" \
+  --principal "cloudfront.amazonaws.com" \
+  --source-arn "arn:aws:cloudfront::<ACCOUNT_ID>:distribution/<DISTRIBUTION_ID>" \
+  --function-name <IMAGE_OPTIMIZER_FUNCTION_NAME>
+```
+
+**Note:** AWS has a temporary exception period until November 1, 2026, during which the old single-permission model still works. After this date, the dual permission will be strictly enforced.
 
 # Comparison to other implementations
 
