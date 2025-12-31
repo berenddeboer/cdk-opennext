@@ -582,6 +582,7 @@ export class NextjsSite extends Construct {
       runtime: fnProps?.runtime ?? Runtime.NODEJS_24_X,
       architecture: fnProps?.architecture ?? Architecture.ARM_64,
       memorySize: fnProps?.memorySize ?? 1024,
+      timeout: fnProps?.timeout ?? Duration.seconds(10),
       loggingFormat: fnProps?.loggingFormat ?? LoggingFormat.JSON,
       handler: origin.handler,
       code: Code.fromAsset(path.join(this.openNextPath, "..", origin.bundle)),
