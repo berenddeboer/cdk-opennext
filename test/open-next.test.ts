@@ -211,7 +211,8 @@ describe("NextjsSite", () => {
           (fn: any) =>
             fn.Properties.Runtime === "nodejs24.x" &&
             fn.Properties.Handler === "index.handler" &&
-            fn.Properties.MemorySize === 1024
+            fn.Properties.MemorySize === 1024 &&
+            fn.Properties.Timeout === 10
         )
       ).toBe(true)
     })
