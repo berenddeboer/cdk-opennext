@@ -1267,7 +1267,7 @@ describe("NextjsSite", () => {
       })
 
       expect(() => construct.url).toThrow(
-        "No distribution created (createDistribution is false)"
+        "Distribution not available. Set createDistribution: true"
       )
     })
 
@@ -1278,7 +1278,7 @@ describe("NextjsSite", () => {
       })
 
       expect(() => construct.customDomainUrl).toThrow(
-        "No distribution created (createDistribution is false)"
+        "Distribution not available. Set createDistribution: true"
       )
     })
 

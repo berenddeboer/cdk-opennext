@@ -241,22 +241,29 @@ export interface NextjsSiteProps {
 }
 
 export class NextjsSite extends Construct {
-  // CloudFront origins keyed by name. Always includes "default"
-  // (server), "s3", and "imageOptimizer". May include additional
-  // function origins from open-next.output.json.
+  /**
+   * CloudFront origins keyed by name. Always includes "default"
+   * (server), "s3", and "imageOptimizer". May include additional
+   * function origins from open-next.output.json.
+   */
   public readonly origins: Record<string, IOrigin>
 
-  // Behavior descriptors from open-next.output.json (pattern +
-  // origin name). Use with `origins` to build distribution behaviors.
+  /**
+   * Behavior descriptors from open-next.output.json (pattern +
+   * origin name). Use with `origins` to build distribution behaviors.
+   */
   public readonly behaviors: OpenNextBehavior[]
 
-  // Cache policy for server/SSR origins (dynamic content).
+  /** Cache policy for server/SSR origins (dynamic content). */
   public readonly serverCachePolicy: CachePolicy
 
-  // Cache policy for static/S3 origins. Currently CACHING_OPTIMIZED.
+  /** Cache policy for static/S3 origins. Currently CACHING_OPTIMIZED. */
   public readonly staticCachePolicy: ICachePolicy
 
-  // The CloudFront distribution, only created if createDistribution is not false.
+  /**
+   * The CloudFront distribution, only created if
+   * createDistribution is not false.
+   */
   public readonly distribution: Distribution | undefined
 
   private openNextOutput: OpenNextOutput
@@ -277,8 +284,8 @@ export class NextjsSite extends Construct {
   public get url(): string {
     if (!this.distribution) {
       throw new Error(
-        "No distribution created (createDistribution is false). " +
-          "Use the exposed origins to build your own distribution."
+        "Distribution not available. Set createDistribution: true" +
+          " to enable automatic distribution creation."
       )
     }
     return `https://${this.distribution.distributionDomainName}`
@@ -287,8 +294,8 @@ export class NextjsSite extends Construct {
   public get customDomainUrl(): string {
     if (!this.distribution) {
       throw new Error(
-        "No distribution created (createDistribution is false). " +
-          "Use the exposed origins to build your own distribution."
+        "Distribution not available. Set createDistribution: true" +
+          " to enable automatic distribution creation."
       )
     }
     return this._customDomainName
@@ -800,7 +807,7 @@ if(request.headers["cloudfront-viewer-longitude"]) {
             const origin = behavior.origin ? origins[behavior.origin] : origins.default
             if (!origin) {
               throw new Error(
-                `Origin '${behavior.origin || "default"}' not found` + " in origins map"
+                `Origin '${behavior.origin || "default"}' not found in origins map`
               )
             }
             const behaviorOptions: BehaviorOptions = {
