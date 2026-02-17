@@ -104,6 +104,22 @@ interface OpenNextOutput {
 }
 
 /**
+ * Behavior descriptor from open-next.output.json.
+ * Contains the pattern and optional origin name for building distribution behaviors.
+ */
+export interface OpenNextBehavior {
+  /**
+   * The URL pattern for this behavior (e.g., "_next/static/*" or "*").
+   */
+  readonly pattern: string
+
+  /**
+   * The origin name to use for this behavior. If not specified, uses "default".
+   */
+  readonly origin?: string
+}
+
+/**
  * Props for Lambda functions, excluding handler and code which are set by the construct.
  * Extends FunctionOptions and adds runtime.
  */
@@ -196,20 +212,48 @@ export interface NextjsSiteProps {
    * prewarmOnDeploy: false
    */
   readonly prewarmOnDeploy?: boolean
+
+  /**
+   * Whether to create a CloudFront distribution.
+   *
+   * Set to `false` for headless mode: all compute and storage
+   * resources are created but no distribution. Use the exposed
+   * `origins`, `behaviors`, `serverCachePolicy`, and
+   * `staticCachePolicy` to wire up your own distribution.
+   *
+   * When false, `customDomain` is ignored and the `distribution`,
+   * `url`, and `customDomainUrl` accessors throw.
+   *
+   * @default true
+   */
+  readonly createDistribution?: boolean
 }
 
 export class NextjsSite extends Construct {
+  // CloudFront origins keyed by name. Always includes "default"
+  // (server), "s3", and "imageOptimizer". May include additional
+  // function origins from open-next.output.json.
+  public readonly origins: Record<string, IOrigin>
+
+  // Behavior descriptors from open-next.output.json (pattern +
+  // origin name). Use with `origins` to build distribution behaviors.
+  public readonly behaviors: OpenNextBehavior[]
+
+  // Cache policy for server/SSR origins (dynamic content).
+  public readonly serverCachePolicy: CachePolicy
+
+  // Cache policy for static/S3 origins. Currently CACHING_OPTIMIZED.
+  public readonly staticCachePolicy: ICachePolicy
+
+  // The CloudFront distribution, only created if createDistribution is not false.
+  public readonly distribution: Distribution | undefined
+
   private openNextOutput: OpenNextOutput
   private bucket: Bucket
   private table: Table
   private queue: Queue
 
-  private staticCachePolicy: ICachePolicy
-  private serverCachePolicy: CachePolicy
-
   private openNextPath: string
-
-  public readonly distribution: Distribution
   private _defaultServerFunction!: CdkFunction
   private _customDomainName?: string
   private warmerFunction?: CdkFunction
@@ -220,13 +264,41 @@ export class NextjsSite extends Construct {
   }
 
   public get url(): string {
+    if (!this.distribution) {
+      throw new Error(
+        "No distribution created (createDistribution is false). " +
+          "Use the exposed origins to build your own distribution."
+      )
+    }
     return `https://${this.distribution.distributionDomainName}`
   }
 
   public get customDomainUrl(): string {
+    if (!this.distribution) {
+      throw new Error(
+        "No distribution created (createDistribution is false). " +
+          "Use the exposed origins to build your own distribution."
+      )
+    }
     return this._customDomainName
       ? `https://${this._customDomainName}`
       : `https://${this.distribution.distributionDomainName}`
+  }
+
+  /**
+   * Returns the CloudFront Function code string that injects
+   * x-forwarded-host and geo headers. Use this when creating your
+   * own distribution with NextjsSite origins.
+   */
+  public get cloudfrontFunctionCode(): string {
+    return `
+      function handler(event) {
+        var request = event.request;
+        request.headers["x-forwarded-host"] = request.headers.host;
+        ${this.getGeoHeadersInjection()}
+        return request;
+      }
+    `
   }
 
   constructor(scope: Construct, id: string, props: NextjsSiteProps) {
@@ -238,6 +310,15 @@ export class NextjsSite extends Construct {
     ) as OpenNextOutput
 
     this._customDomainName = props.customDomain?.domainName
+    this.behaviors = this.openNextOutput.behaviors
+
+    // Validate: customDomain with createDistribution: false is not allowed
+    if (props.createDistribution === false && props.customDomain) {
+      throw new Error(
+        "customDomain cannot be used when createDistribution is false. " +
+          "Create the distribution yourself to configure custom domains."
+      )
+    }
 
     // Validate customDomain props: either certificate or hostedZone must be provided
     if (
@@ -272,24 +353,32 @@ export class NextjsSite extends Construct {
           )
         : undefined)
 
-    const origins = this.createOrigins(props.defaultFunctionProps)
+    this.origins = this.createOrigins(props.defaultFunctionProps)
     this.serverCachePolicy = this.createServerCachePolicy()
     this.staticCachePolicy = this.createStaticCachePolicy()
-    this.distribution = this.createDistribution(origins, props, certificate)
-    this.createWarmer()
-    if (props.customDomain && props.customDomain.hostedZone) {
-      new ARecord(this, "AliasRecord", {
-        zone: props.customDomain.hostedZone,
-        recordName: props.customDomain.domainName,
-        target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
-      })
 
-      new AaaaRecord(this, "AliasRecordAAAA", {
-        zone: props.customDomain.hostedZone,
-        recordName: props.customDomain.domainName,
-        target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
-      })
+    // Create distribution and DNS records only if createDistribution is not false
+    if (props.createDistribution !== false) {
+      this.distribution = this.createDistribution(this.origins, props, certificate)
+
+      if (props.customDomain && props.customDomain.hostedZone) {
+        new ARecord(this, "AliasRecord", {
+          zone: props.customDomain.hostedZone,
+          recordName: props.customDomain.domainName,
+          target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
+        })
+
+        new AaaaRecord(this, "AliasRecordAAAA", {
+          zone: props.customDomain.hostedZone,
+          recordName: props.customDomain.domainName,
+          target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
+        })
+      }
+    } else {
+      this.distribution = undefined
     }
+
+    this.createWarmer()
   }
 
   private createCertificate(domainName: string, hostedZone: IHostedZone) {

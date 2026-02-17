@@ -1165,4 +1165,161 @@ describe("NextjsSite", () => {
       )
     })
   })
+
+  describe("headless mode (createDistribution: false)", () => {
+    it("should not create a CloudFront distribution when createDistribution is false", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      const template = Template.fromStack(stack)
+
+      // No CloudFront distribution should be created
+      const distributions = template.findResources("AWS::CloudFront::Distribution")
+      expect(Object.keys(distributions).length).toBe(0)
+    })
+
+    it("should still create all compute and storage resources in headless mode", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      const template = Template.fromStack(stack)
+
+      // S3 bucket should exist
+      const buckets = template.findResources("AWS::S3::Bucket")
+      expect(Object.keys(buckets).length).toBeGreaterThan(0)
+
+      // DynamoDB table should exist
+      const tables = template.findResources("AWS::DynamoDB::GlobalTable")
+      expect(Object.keys(tables).length).toBeGreaterThan(0)
+
+      // SQS queue should exist
+      template.hasResourceProperties("AWS::SQS::Queue", {
+        FifoQueue: true,
+      })
+
+      // Lambda functions should exist
+      const functions = template.findResources("AWS::Lambda::Function")
+      expect(Object.keys(functions).length).toBeGreaterThan(0)
+    })
+
+    it("should expose origins in headless mode", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      expect(construct.origins).toBeDefined()
+      expect(construct.origins.default).toBeDefined()
+      expect(construct.origins.s3).toBeDefined()
+      expect(construct.origins.imageOptimizer).toBeDefined()
+    })
+
+    it("should expose behaviors in headless mode", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      expect(construct.behaviors).toBeDefined()
+      expect(construct.behaviors.length).toBeGreaterThan(0)
+      expect(construct.behaviors.some((b) => b.pattern === "*")).toBe(true)
+      expect(construct.behaviors.some((b) => b.pattern === "_next/static/*")).toBe(true)
+    })
+
+    it("should expose cache policies in headless mode", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      expect(construct.serverCachePolicy).toBeDefined()
+      expect(construct.staticCachePolicy).toBeDefined()
+    })
+
+    it("should expose cloudfrontFunctionCode in headless mode", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      expect(construct.cloudfrontFunctionCode).toBeDefined()
+      expect(construct.cloudfrontFunctionCode).toContain("x-forwarded-host")
+      expect(construct.cloudfrontFunctionCode).toContain("cloudfront-viewer-city")
+    })
+
+    it("should have undefined distribution in headless mode", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      expect(construct.distribution).toBeUndefined()
+    })
+
+    it("should throw when accessing url in headless mode", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      expect(() => construct.url).toThrow(
+        "No distribution created (createDistribution is false)"
+      )
+    })
+
+    it("should throw when accessing customDomainUrl in headless mode", () => {
+      const construct = new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      expect(() => construct.customDomainUrl).toThrow(
+        "No distribution created (createDistribution is false)"
+      )
+    })
+
+    it("should throw at construct time when createDistribution is false with customDomain", () => {
+      expect(() => {
+        new NextjsSite(stack, "TestOpenNext", {
+          openNextPath: openNextPath,
+          createDistribution: false,
+          customDomain: {
+            domainName: "app.example.com",
+          },
+        })
+      }).toThrow("customDomain cannot be used when createDistribution is false")
+    })
+
+    it("should not create Route53 records in headless mode", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      const template = Template.fromStack(stack)
+
+      // No Route53 records should be created
+      template.resourceCountIs("AWS::Route53::RecordSet", 0)
+    })
+
+    it("should create cache policies even in headless mode", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        createDistribution: false,
+      })
+
+      const template = Template.fromStack(stack)
+
+      // Server cache policy should be created
+      template.hasResourceProperties("AWS::CloudFront::CachePolicy", {
+        CachePolicyConfig: {
+          DefaultTTL: 0,
+        },
+      })
+    })
+  })
 })
