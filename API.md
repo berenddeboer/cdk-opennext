@@ -1220,6 +1220,22 @@ When false, `customDomain` is ignored and the `distribution`,
 
 ---
 
+*Example*
+
+```typescript
+// Headless mode - build your own distribution
+const site = new NextjsSite(this, 'Site', {
+  createDistribution: false,
+})
+new Distribution(this, 'Cdn', {
+  defaultBehavior: {
+    origin: site.origins.default,
+    cachePolicy: site.serverCachePolicy,
+  },
+})
+```
+
+
 ##### `customDomain`<sup>Optional</sup> <a name="customDomain" id="cdk-opennext.NextjsSiteProps.property.customDomain"></a>
 
 ```typescript

@@ -225,6 +225,17 @@ export interface NextjsSiteProps {
    * `url`, and `customDomainUrl` accessors throw.
    *
    * @default true
+   * @example
+   * // Headless mode - build your own distribution
+   * const site = new NextjsSite(this, 'Site', {
+   *   createDistribution: false,
+   * })
+   * new Distribution(this, 'Cdn', {
+   *   defaultBehavior: {
+   *     origin: site.origins.default,
+   *     cachePolicy: site.serverCachePolicy,
+   *   },
+   * })
    */
   readonly createDistribution?: boolean
 }
@@ -291,14 +302,7 @@ export class NextjsSite extends Construct {
    * own distribution with NextjsSite origins.
    */
   public get cloudfrontFunctionCode(): string {
-    return `
-      function handler(event) {
-        var request = event.request;
-        request.headers["x-forwarded-host"] = request.headers.host;
-        ${this.getGeoHeadersInjection()}
-        return request;
-      }
-    `
+    return this.buildCloudfrontFunctionCode()
   }
 
   constructor(scope: Construct, id: string, props: NextjsSiteProps) {
@@ -748,20 +752,24 @@ if(request.headers["cloudfront-viewer-longitude"]) {
     `.trim()
   }
 
+  private buildCloudfrontFunctionCode(): string {
+    return `
+      function handler(event) {
+        var request = event.request;
+        request.headers["x-forwarded-host"] = request.headers.host;
+        ${this.getGeoHeadersInjection()}
+        return request;
+      }
+    `
+  }
+
   private createDistribution(
     origins: Record<string, IOrigin>,
     props: NextjsSiteProps,
     certificate?: ICertificate
   ) {
     const cloudfrontFunction = new CloudfrontFunction(this, "CloudFrontFunction", {
-      code: FunctionCode.fromInline(`
-			function handler(event) {
-				var request = event.request;
-				request.headers["x-forwarded-host"] = request.headers.host;
-				${this.getGeoHeadersInjection()}
-				return request;
-			}
-			`),
+      code: FunctionCode.fromInline(this.buildCloudfrontFunctionCode()),
     })
     const fnAssociations = [
       {
@@ -770,11 +778,14 @@ if(request.headers["cloudfront-viewer-longitude"]) {
       },
     ]
 
+    if (!origins.default) {
+      throw new Error("Default origin must be defined")
+    }
     const distribution = new Distribution(this, "Distribution", {
       domainNames: props.customDomain ? [props.customDomain.domainName] : undefined,
       certificate,
       defaultBehavior: {
-        origin: origins.default!, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        origin: origins.default,
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: AllowedMethods.ALLOW_ALL,
         cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
@@ -786,8 +797,14 @@ if(request.headers["cloudfront-viewer-longitude"]) {
         .filter((b) => b.pattern !== "*")
         .reduce(
           (acc, behavior) => {
+            const origin = behavior.origin ? origins[behavior.origin] : origins.default
+            if (!origin) {
+              throw new Error(
+                `Origin '${behavior.origin || "default"}' not found` + " in origins map"
+              )
+            }
             const behaviorOptions: BehaviorOptions = {
-              origin: (behavior.origin ? origins[behavior.origin] : origins.default)!, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+              origin,
               viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
               allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
               cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
