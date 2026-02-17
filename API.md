@@ -99,10 +99,15 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-opennext.NextjsSite.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-opennext.NextjsSite.property.behaviors">behaviors</a></code> | <code><a href="#cdk-opennext.OpenNextBehavior">OpenNextBehavior</a>[]</code> | Behavior descriptors from open-next.output.json (pattern + origin name). Use with `origins` to build distribution behaviors. |
+| <code><a href="#cdk-opennext.NextjsSite.property.cloudfrontFunctionCode">cloudfrontFunctionCode</a></code> | <code>string</code> | Returns the CloudFront Function code string that injects x-forwarded-host and geo headers. |
 | <code><a href="#cdk-opennext.NextjsSite.property.customDomainUrl">customDomainUrl</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-opennext.NextjsSite.property.defaultServerFunction">defaultServerFunction</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | *No description.* |
-| <code><a href="#cdk-opennext.NextjsSite.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
+| <code><a href="#cdk-opennext.NextjsSite.property.origins">origins</a></code> | <code>{[ key: string ]: aws-cdk-lib.aws_cloudfront.IOrigin}</code> | CloudFront origins keyed by name. |
+| <code><a href="#cdk-opennext.NextjsSite.property.serverCachePolicy">serverCachePolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicy</code> | Cache policy for server/SSR origins (dynamic content). |
+| <code><a href="#cdk-opennext.NextjsSite.property.staticCachePolicy">staticCachePolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.ICachePolicy</code> | Cache policy for static/S3 origins. |
 | <code><a href="#cdk-opennext.NextjsSite.property.url">url</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-opennext.NextjsSite.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | The CloudFront distribution, only created if createDistribution is not false. |
 
 ---
 
@@ -115,6 +120,33 @@ public readonly node: Node;
 - *Type:* constructs.Node
 
 The tree node.
+
+---
+
+##### `behaviors`<sup>Required</sup> <a name="behaviors" id="cdk-opennext.NextjsSite.property.behaviors"></a>
+
+```typescript
+public readonly behaviors: OpenNextBehavior[];
+```
+
+- *Type:* <a href="#cdk-opennext.OpenNextBehavior">OpenNextBehavior</a>[]
+
+Behavior descriptors from open-next.output.json (pattern + origin name). Use with `origins` to build distribution behaviors.
+
+---
+
+##### `cloudfrontFunctionCode`<sup>Required</sup> <a name="cloudfrontFunctionCode" id="cdk-opennext.NextjsSite.property.cloudfrontFunctionCode"></a>
+
+```typescript
+public readonly cloudfrontFunctionCode: string;
+```
+
+- *Type:* string
+
+Returns the CloudFront Function code string that injects x-forwarded-host and geo headers.
+
+Use this when creating your
+own distribution with NextjsSite origins.
 
 ---
 
@@ -138,13 +170,45 @@ public readonly defaultServerFunction: Function;
 
 ---
 
-##### `distribution`<sup>Required</sup> <a name="distribution" id="cdk-opennext.NextjsSite.property.distribution"></a>
+##### `origins`<sup>Required</sup> <a name="origins" id="cdk-opennext.NextjsSite.property.origins"></a>
 
 ```typescript
-public readonly distribution: Distribution;
+public readonly origins: {[ key: string ]: IOrigin};
 ```
 
-- *Type:* aws-cdk-lib.aws_cloudfront.Distribution
+- *Type:* {[ key: string ]: aws-cdk-lib.aws_cloudfront.IOrigin}
+
+CloudFront origins keyed by name.
+
+Always includes "default"
+(server), "s3", and "imageOptimizer". May include additional
+function origins from open-next.output.json.
+
+---
+
+##### `serverCachePolicy`<sup>Required</sup> <a name="serverCachePolicy" id="cdk-opennext.NextjsSite.property.serverCachePolicy"></a>
+
+```typescript
+public readonly serverCachePolicy: CachePolicy;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.CachePolicy
+
+Cache policy for server/SSR origins (dynamic content).
+
+---
+
+##### `staticCachePolicy`<sup>Required</sup> <a name="staticCachePolicy" id="cdk-opennext.NextjsSite.property.staticCachePolicy"></a>
+
+```typescript
+public readonly staticCachePolicy: ICachePolicy;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.ICachePolicy
+
+Cache policy for static/S3 origins.
+
+Currently CACHING_OPTIMIZED.
 
 ---
 
@@ -155,6 +219,18 @@ public readonly url: string;
 ```
 
 - *Type:* string
+
+---
+
+##### `distribution`<sup>Optional</sup> <a name="distribution" id="cdk-opennext.NextjsSite.property.distribution"></a>
+
+```typescript
+public readonly distribution: Distribution;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.Distribution
+
+The CloudFront distribution, only created if createDistribution is not false.
 
 ---
 
@@ -1129,6 +1205,7 @@ const nextjsSiteProps: NextjsSiteProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-opennext.NextjsSiteProps.property.createDistribution">createDistribution</a></code> | <code>boolean</code> | Whether to create a CloudFront distribution. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.customDomain">customDomain</a></code> | <code><a href="#cdk-opennext.DistributionDomainProps">DistributionDomainProps</a></code> | The customDomain for this website. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.defaultFunctionProps">defaultFunctionProps</a></code> | <code><a href="#cdk-opennext.DefaultFunctionProps">DefaultFunctionProps</a></code> | Default props to apply to all Lambda functions created by this construct. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.openNextPath">openNextPath</a></code> | <code>string</code> | Should point to the .open-next directory. |
@@ -1137,6 +1214,43 @@ const nextjsSiteProps: NextjsSiteProps = { ... }
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.warmerInterval">warmerInterval</a></code> | <code>aws-cdk-lib.Duration</code> | How often to invoke the warmer function. |
 
 ---
+
+##### `createDistribution`<sup>Optional</sup> <a name="createDistribution" id="cdk-opennext.NextjsSiteProps.property.createDistribution"></a>
+
+```typescript
+public readonly createDistribution: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Whether to create a CloudFront distribution.
+
+Set to `false` for headless mode: all compute and storage
+resources are created but no distribution. Use the exposed
+`origins`, `behaviors`, `serverCachePolicy`, and
+`staticCachePolicy` to wire up your own distribution.
+
+When false, `customDomain` is ignored and the `distribution`,
+`url`, and `customDomainUrl` accessors throw.
+
+---
+
+*Example*
+
+```typescript
+// Headless mode - build your own distribution
+const site = new NextjsSite(this, 'Site', {
+  createDistribution: false,
+})
+new Distribution(this, 'Cdn', {
+  defaultBehavior: {
+    origin: site.origins.default,
+    cachePolicy: site.serverCachePolicy,
+  },
+})
+```
+
 
 ##### `customDomain`<sup>Optional</sup> <a name="customDomain" id="cdk-opennext.NextjsSiteProps.property.customDomain"></a>
 
@@ -1247,6 +1361,53 @@ How often to invoke the warmer function.
 warmerInterval: Duration.minutes(10)
 ```
 
+
+### OpenNextBehavior <a name="OpenNextBehavior" id="cdk-opennext.OpenNextBehavior"></a>
+
+Behavior descriptor from open-next.output.json. Contains the pattern and optional origin name for building distribution behaviors.
+
+#### Initializer <a name="Initializer" id="cdk-opennext.OpenNextBehavior.Initializer"></a>
+
+```typescript
+import { OpenNextBehavior } from 'cdk-opennext'
+
+const openNextBehavior: OpenNextBehavior = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-opennext.OpenNextBehavior.property.pattern">pattern</a></code> | <code>string</code> | The URL pattern for this behavior (e.g., "_next/static/*" or "*"). |
+| <code><a href="#cdk-opennext.OpenNextBehavior.property.origin">origin</a></code> | <code>string</code> | The origin name to use for this behavior. |
+
+---
+
+##### `pattern`<sup>Required</sup> <a name="pattern" id="cdk-opennext.OpenNextBehavior.property.pattern"></a>
+
+```typescript
+public readonly pattern: string;
+```
+
+- *Type:* string
+
+The URL pattern for this behavior (e.g., "_next/static/*" or "*").
+
+---
+
+##### `origin`<sup>Optional</sup> <a name="origin" id="cdk-opennext.OpenNextBehavior.property.origin"></a>
+
+```typescript
+public readonly origin: string;
+```
+
+- *Type:* string
+
+The origin name to use for this behavior.
+
+If not specified, uses "default".
+
+---
 
 
 

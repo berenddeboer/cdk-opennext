@@ -104,6 +104,22 @@ interface OpenNextOutput {
 }
 
 /**
+ * Behavior descriptor from open-next.output.json.
+ * Contains the pattern and optional origin name for building distribution behaviors.
+ */
+export interface OpenNextBehavior {
+  /**
+   * The URL pattern for this behavior (e.g., "_next/static/*" or "*").
+   */
+  readonly pattern: string
+
+  /**
+   * The origin name to use for this behavior. If not specified, uses "default".
+   */
+  readonly origin?: string
+}
+
+/**
  * Props for Lambda functions, excluding handler and code which are set by the construct.
  * Extends FunctionOptions and adds runtime.
  */
@@ -196,20 +212,66 @@ export interface NextjsSiteProps {
    * prewarmOnDeploy: false
    */
   readonly prewarmOnDeploy?: boolean
+
+  /**
+   * Whether to create a CloudFront distribution.
+   *
+   * Set to `false` for headless mode: all compute and storage
+   * resources are created but no distribution. Use the exposed
+   * `origins`, `behaviors`, `serverCachePolicy`, and
+   * `staticCachePolicy` to wire up your own distribution.
+   *
+   * When false, `customDomain` is ignored and the `distribution`,
+   * `url`, and `customDomainUrl` accessors throw.
+   *
+   * @default true
+   * @example
+   * // Headless mode - build your own distribution
+   * const site = new NextjsSite(this, 'Site', {
+   *   createDistribution: false,
+   * })
+   * new Distribution(this, 'Cdn', {
+   *   defaultBehavior: {
+   *     origin: site.origins.default,
+   *     cachePolicy: site.serverCachePolicy,
+   *   },
+   * })
+   */
+  readonly createDistribution?: boolean
 }
 
 export class NextjsSite extends Construct {
+  /**
+   * CloudFront origins keyed by name. Always includes "default"
+   * (server), "s3", and "imageOptimizer". May include additional
+   * function origins from open-next.output.json.
+   */
+  public readonly origins: Record<string, IOrigin>
+
+  /**
+   * Behavior descriptors from open-next.output.json (pattern +
+   * origin name). Use with `origins` to build distribution behaviors.
+   */
+  public readonly behaviors: OpenNextBehavior[]
+
+  /** Cache policy for server/SSR origins (dynamic content). */
+  public readonly serverCachePolicy: CachePolicy
+
+  /** Cache policy for static/S3 origins. Currently CACHING_OPTIMIZED. */
+  public readonly staticCachePolicy: ICachePolicy
+
+  /**
+   * The CloudFront distribution, only created if
+   * createDistribution is not false.
+   */
+  public readonly distribution: Distribution | undefined
+
   private openNextOutput: OpenNextOutput
   private bucket: Bucket
   private table: Table
   private queue: Queue
 
-  private staticCachePolicy: ICachePolicy
-  private serverCachePolicy: CachePolicy
-
   private openNextPath: string
-
-  public readonly distribution: Distribution
   private _defaultServerFunction!: CdkFunction
   private _customDomainName?: string
   private warmerFunction?: CdkFunction
@@ -220,13 +282,34 @@ export class NextjsSite extends Construct {
   }
 
   public get url(): string {
+    if (!this.distribution) {
+      throw new Error(
+        "Distribution not available. Set createDistribution: true" +
+          " to enable automatic distribution creation."
+      )
+    }
     return `https://${this.distribution.distributionDomainName}`
   }
 
   public get customDomainUrl(): string {
+    if (!this.distribution) {
+      throw new Error(
+        "Distribution not available. Set createDistribution: true" +
+          " to enable automatic distribution creation."
+      )
+    }
     return this._customDomainName
       ? `https://${this._customDomainName}`
       : `https://${this.distribution.distributionDomainName}`
+  }
+
+  /**
+   * Returns the CloudFront Function code string that injects
+   * x-forwarded-host and geo headers. Use this when creating your
+   * own distribution with NextjsSite origins.
+   */
+  public get cloudfrontFunctionCode(): string {
+    return this.buildCloudfrontFunctionCode()
   }
 
   constructor(scope: Construct, id: string, props: NextjsSiteProps) {
@@ -238,6 +321,15 @@ export class NextjsSite extends Construct {
     ) as OpenNextOutput
 
     this._customDomainName = props.customDomain?.domainName
+    this.behaviors = this.openNextOutput.behaviors
+
+    // Validate: customDomain with createDistribution: false is not allowed
+    if (props.createDistribution === false && props.customDomain) {
+      throw new Error(
+        "customDomain cannot be used when createDistribution is false. " +
+          "Create the distribution yourself to configure custom domains."
+      )
+    }
 
     // Validate customDomain props: either certificate or hostedZone must be provided
     if (
@@ -272,24 +364,32 @@ export class NextjsSite extends Construct {
           )
         : undefined)
 
-    const origins = this.createOrigins(props.defaultFunctionProps)
+    this.origins = this.createOrigins(props.defaultFunctionProps)
     this.serverCachePolicy = this.createServerCachePolicy()
     this.staticCachePolicy = this.createStaticCachePolicy()
-    this.distribution = this.createDistribution(origins, props, certificate)
-    this.createWarmer()
-    if (props.customDomain && props.customDomain.hostedZone) {
-      new ARecord(this, "AliasRecord", {
-        zone: props.customDomain.hostedZone,
-        recordName: props.customDomain.domainName,
-        target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
-      })
 
-      new AaaaRecord(this, "AliasRecordAAAA", {
-        zone: props.customDomain.hostedZone,
-        recordName: props.customDomain.domainName,
-        target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
-      })
+    // Create distribution and DNS records only if createDistribution is not false
+    if (props.createDistribution !== false) {
+      this.distribution = this.createDistribution(this.origins, props, certificate)
+
+      if (props.customDomain && props.customDomain.hostedZone) {
+        new ARecord(this, "AliasRecord", {
+          zone: props.customDomain.hostedZone,
+          recordName: props.customDomain.domainName,
+          target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
+        })
+
+        new AaaaRecord(this, "AliasRecordAAAA", {
+          zone: props.customDomain.hostedZone,
+          recordName: props.customDomain.domainName,
+          target: RecordTarget.fromAlias(new CloudFrontTarget(this.distribution)),
+        })
+      }
+    } else {
+      this.distribution = undefined
     }
+
+    this.createWarmer()
   }
 
   private createCertificate(domainName: string, hostedZone: IHostedZone) {
@@ -659,20 +759,24 @@ if(request.headers["cloudfront-viewer-longitude"]) {
     `.trim()
   }
 
+  private buildCloudfrontFunctionCode(): string {
+    return `
+      function handler(event) {
+        var request = event.request;
+        request.headers["x-forwarded-host"] = request.headers.host;
+        ${this.getGeoHeadersInjection()}
+        return request;
+      }
+    `
+  }
+
   private createDistribution(
     origins: Record<string, IOrigin>,
     props: NextjsSiteProps,
     certificate?: ICertificate
   ) {
     const cloudfrontFunction = new CloudfrontFunction(this, "CloudFrontFunction", {
-      code: FunctionCode.fromInline(`
-			function handler(event) {
-				var request = event.request;
-				request.headers["x-forwarded-host"] = request.headers.host;
-				${this.getGeoHeadersInjection()}
-				return request;
-			}
-			`),
+      code: FunctionCode.fromInline(this.buildCloudfrontFunctionCode()),
     })
     const fnAssociations = [
       {
@@ -681,11 +785,14 @@ if(request.headers["cloudfront-viewer-longitude"]) {
       },
     ]
 
+    if (!origins.default) {
+      throw new Error("Default origin must be defined")
+    }
     const distribution = new Distribution(this, "Distribution", {
       domainNames: props.customDomain ? [props.customDomain.domainName] : undefined,
       certificate,
       defaultBehavior: {
-        origin: origins.default!, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        origin: origins.default,
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: AllowedMethods.ALLOW_ALL,
         cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
@@ -697,8 +804,14 @@ if(request.headers["cloudfront-viewer-longitude"]) {
         .filter((b) => b.pattern !== "*")
         .reduce(
           (acc, behavior) => {
+            const origin = behavior.origin ? origins[behavior.origin] : origins.default
+            if (!origin) {
+              throw new Error(
+                `Origin '${behavior.origin || "default"}' not found in origins map`
+              )
+            }
             const behaviorOptions: BehaviorOptions = {
-              origin: (behavior.origin ? origins[behavior.origin] : origins.default)!, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+              origin,
               viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
               allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
               cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
