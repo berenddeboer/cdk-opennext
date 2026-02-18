@@ -1234,7 +1234,7 @@ const nextjsSiteProps: NextjsSiteProps = { ... }
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.createDistribution">createDistribution</a></code> | <code>boolean</code> | Whether to create a CloudFront distribution. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.customDomain">customDomain</a></code> | <code><a href="#cdk-opennext.DistributionDomainProps">DistributionDomainProps</a></code> | The customDomain for this website. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.defaultFunctionProps">defaultFunctionProps</a></code> | <code><a href="#cdk-opennext.DefaultFunctionProps">DefaultFunctionProps</a></code> | Default props to apply to all Lambda functions created by this construct. |
-| <code><a href="#cdk-opennext.NextjsSiteProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.aws_logs.ILogGroup</code> | CloudWatch log group to use for all Lambda functions created by this construct. |
+| <code><a href="#cdk-opennext.NextjsSiteProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.aws_logs.ILogGroup</code> | CloudWatch log group to use for the server, image optimizer, and revalidation functions. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.openNextPath">openNextPath</a></code> | <code>string</code> | Should point to the .open-next directory. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.prewarmOnDeploy">prewarmOnDeploy</a></code> | <code>boolean</code> | Whether to invoke the warmer function immediately after deployment. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.warm">warm</a></code> | <code>number \| boolean</code> | The number of server instances to keep warm. |
@@ -1321,10 +1321,11 @@ public readonly logGroup: ILogGroup;
 
 - *Type:* aws-cdk-lib.aws_logs.ILogGroup
 
-CloudWatch log group to use for all Lambda functions created by this construct.
+CloudWatch log group to use for the server, image optimizer, and revalidation functions.
 
-When set, all functions (server, image optimizer, revalidation, warmer, pre-warmer)
-will write logs to this log group.
+Can be overridden per-function via
+`defaultFunctionProps.logGroup`. Use `warmerLogGroup` for the
+warmer and pre-warmer functions.
 
 ---
 
