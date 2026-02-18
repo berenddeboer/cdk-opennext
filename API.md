@@ -100,6 +100,7 @@ Any object.
 | --- | --- | --- |
 | <code><a href="#cdk-opennext.NextjsSite.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-opennext.NextjsSite.property.behaviors">behaviors</a></code> | <code><a href="#cdk-opennext.OpenNextBehavior">OpenNextBehavior</a>[]</code> | Behavior descriptors from open-next.output.json (pattern + origin name). Use with `origins` to build distribution behaviors. |
+| <code><a href="#cdk-opennext.NextjsSite.property.bucket">bucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | The S3 bucket used for static assets and cache. |
 | <code><a href="#cdk-opennext.NextjsSite.property.cloudfrontFunctionCode">cloudfrontFunctionCode</a></code> | <code>string</code> | Returns the CloudFront Function code string that injects x-forwarded-host and geo headers. |
 | <code><a href="#cdk-opennext.NextjsSite.property.customDomainUrl">customDomainUrl</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-opennext.NextjsSite.property.defaultServerFunction">defaultServerFunction</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | *No description.* |
@@ -108,6 +109,7 @@ Any object.
 | <code><a href="#cdk-opennext.NextjsSite.property.staticCachePolicy">staticCachePolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.ICachePolicy</code> | Cache policy for static/S3 origins. |
 | <code><a href="#cdk-opennext.NextjsSite.property.url">url</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-opennext.NextjsSite.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | The CloudFront distribution, only created if createDistribution is not false. |
+| <code><a href="#cdk-opennext.NextjsSite.property.defaultFunctionUrl">defaultFunctionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.FunctionUrl</code> | The function URL of the default server function. |
 
 ---
 
@@ -132,6 +134,18 @@ public readonly behaviors: OpenNextBehavior[];
 - *Type:* <a href="#cdk-opennext.OpenNextBehavior">OpenNextBehavior</a>[]
 
 Behavior descriptors from open-next.output.json (pattern + origin name). Use with `origins` to build distribution behaviors.
+
+---
+
+##### `bucket`<sup>Required</sup> <a name="bucket" id="cdk-opennext.NextjsSite.property.bucket"></a>
+
+```typescript
+public readonly bucket: Bucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.Bucket
+
+The S3 bucket used for static assets and cache.
 
 ---
 
@@ -231,6 +245,18 @@ public readonly distribution: Distribution;
 - *Type:* aws-cdk-lib.aws_cloudfront.Distribution
 
 The CloudFront distribution, only created if createDistribution is not false.
+
+---
+
+##### `defaultFunctionUrl`<sup>Required</sup> <a name="defaultFunctionUrl" id="cdk-opennext.NextjsSite.property.defaultFunctionUrl"></a>
+
+```typescript
+public readonly defaultFunctionUrl: FunctionUrl;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.FunctionUrl
+
+The function URL of the default server function.
 
 ---
 

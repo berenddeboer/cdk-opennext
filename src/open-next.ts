@@ -32,6 +32,7 @@ import {
   Code,
   Function as CdkFunction,
   type FunctionOptions,
+  type FunctionUrl,
   FunctionUrlAuthType,
   InvokeMode,
   LoggingFormat,
@@ -266,8 +267,13 @@ export class NextjsSite extends Construct {
    */
   public readonly distribution: Distribution | undefined
 
+  /** The S3 bucket used for static assets and cache. */
+  public readonly bucket: Bucket
+
+  /** The function URL of the default server function. */
+  public defaultFunctionUrl!: FunctionUrl
+
   private openNextOutput: OpenNextOutput
-  private bucket: Bucket
   private table: Table
   private queue: Queue
 
@@ -700,6 +706,7 @@ export class NextjsSite extends Construct {
     // Store reference to default server function
     if (key === "default") {
       this._defaultServerFunction = fn
+      this.defaultFunctionUrl = fnUrl
     }
 
     return new HttpOrigin(Fn.parseDomainName(fnUrl.url), {
