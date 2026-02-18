@@ -656,7 +656,7 @@ export class NextjsSite extends Construct {
     }
   }
 
-  private getEnvironment() {
+  private getServerEnvironment() {
     return {
       CACHE_BUCKET_NAME: this.bucket.bucketName,
       CACHE_BUCKET_KEY_PREFIX: "_cache",
@@ -664,7 +664,11 @@ export class NextjsSite extends Construct {
       REVALIDATION_QUEUE_URL: this.queue.queueUrl,
       REVALIDATION_QUEUE_REGION: Stack.of(this).region,
       CACHE_DYNAMO_TABLE: this.table.tableName,
-      // Those 2 are used only for image optimizer
+    }
+  }
+
+  private getImageOptimizerEnvironment() {
+    return {
       BUCKET_NAME: this.bucket.bucketName,
       BUCKET_KEY_PREFIX: "_assets",
     }
@@ -682,7 +686,7 @@ export class NextjsSite extends Construct {
     originId?: string,
     fnProps?: DefaultFunctionProps
   ) {
-    const environment = this.getEnvironment()
+    const environment = this.getServerEnvironment()
     const fn = new CdkFunction(this, `${key}Function`, {
       ...fnProps,
       runtime: fnProps?.runtime ?? Runtime.NODEJS_24_X,
@@ -720,7 +724,7 @@ export class NextjsSite extends Construct {
    * preventing direct access to the Lambda function URL.
    */
   private createImageOptimizerOrigin(origin: OpenNextFunctionOrigin) {
-    const environment = this.getEnvironment()
+    const environment = this.getImageOptimizerEnvironment()
     const fn = new CdkFunction(this, "imageOptimizerFunction", {
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
