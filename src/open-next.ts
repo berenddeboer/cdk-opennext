@@ -266,8 +266,16 @@ export class NextjsSite extends Construct {
    */
   public readonly distribution: Distribution | undefined
 
+  /** The S3 bucket used for static assets and cache. */
+  public readonly bucket: Bucket
+
+  /**
+   * The host portion of the default server function URL
+   * (e.g. "abc123.lambda-url.us-east-1.on.aws").
+   */
+  private _functionUrlHost!: string
+
   private openNextOutput: OpenNextOutput
-  private bucket: Bucket
   private table: Table
   private queue: Queue
 
@@ -279,6 +287,14 @@ export class NextjsSite extends Construct {
 
   public get defaultServerFunction(): CdkFunction {
     return this._defaultServerFunction
+  }
+
+  /**
+   * The host portion of the default server function URL
+   * (e.g. "abc123.lambda-url.us-east-1.on.aws").
+   */
+  public get functionUrlHost(): string {
+    return this._functionUrlHost
   }
 
   public get url(): string {
@@ -700,6 +716,7 @@ export class NextjsSite extends Construct {
     // Store reference to default server function
     if (key === "default") {
       this._defaultServerFunction = fn
+      this._functionUrlHost = Fn.parseDomainName(fnUrl.url)
     }
 
     return new HttpOrigin(Fn.parseDomainName(fnUrl.url), {
