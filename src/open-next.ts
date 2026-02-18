@@ -40,7 +40,7 @@ import {
   Architecture,
 } from "aws-cdk-lib/aws-lambda"
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources"
-import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs"
+import { ILogGroup, LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs"
 import { AaaaRecord, ARecord, IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53"
 import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets"
 import { BlockPublicAccess, Bucket } from "aws-cdk-lib/aws-s3"
@@ -186,6 +186,14 @@ export interface NextjsSiteProps {
   readonly defaultFunctionProps?: DefaultFunctionProps
 
   /**
+   * CloudWatch log group to use for the server, image optimizer, and
+   * revalidation functions. Can be overridden per-function via
+   * `defaultFunctionProps.logGroup`. Use `warmerLogGroup` for the
+   * warmer and pre-warmer functions.
+   */
+  readonly logGroup?: ILogGroup | undefined
+
+  /**
    * The number of server instances to keep warm. Set to false to disable warming.
    * Must be a positive integer (>= 1) if specified. Values <= 0 will disable warming.
    *
@@ -213,6 +221,12 @@ export interface NextjsSiteProps {
    * prewarmOnDeploy: false
    */
   readonly prewarmOnDeploy?: boolean
+
+  /**
+   * CloudWatch log group to use for the warmer and pre-warmer Lambda functions.
+   * When not set, each function creates its own default log group.
+   */
+  readonly warmerLogGroup?: ILogGroup | undefined
 
   /**
    * Whether to create a CloudFront distribution.
@@ -438,6 +452,7 @@ export class NextjsSite extends Construct {
       timeout: Duration.minutes(15),
       memorySize: 128,
       loggingFormat: LoggingFormat.JSON,
+      logGroup: this.props.logGroup,
       environment: {
         CACHE_DYNAMO_TABLE: table.tableName,
       },
@@ -525,6 +540,7 @@ export class NextjsSite extends Construct {
       architecture: Architecture.ARM_64,
       timeout: Duration.seconds(30),
       loggingFormat: LoggingFormat.JSON,
+      logGroup: this.props.logGroup,
     })
     consumer.addEventSource(new SqsEventSource(queue, { batchSize: 5 }))
     return queue
@@ -568,6 +584,7 @@ export class NextjsSite extends Construct {
       timeout: Duration.minutes(1),
       memorySize: 128,
       loggingFormat: LoggingFormat.JSON,
+      logGroup: this.props.warmerLogGroup,
       environment: {
         WARM_PARAMS: JSON.stringify(warmParams),
       },
@@ -587,11 +604,6 @@ export class NextjsSite extends Construct {
 
     // Create pre-warmer if enabled (default: true)
     if (this.props.prewarmOnDeploy !== false) {
-      const prewarmerLogGroup = new LogGroup(this, "PrewarmerLogGroup", {
-        retention: RetentionDays.ONE_DAY,
-        removalPolicy: RemovalPolicy.DESTROY,
-      })
-
       const prewarmerFn = new CdkFunction(this, "PrewarmerFunction", {
         description: "Next.js pre-warmer",
         handler: "index.handler",
@@ -623,14 +635,14 @@ export class NextjsSite extends Construct {
         timeout: Duration.minutes(2),
         memorySize: 128,
         loggingFormat: LoggingFormat.JSON,
-        logGroup: prewarmerLogGroup,
+        logGroup: this.props.warmerLogGroup,
       })
 
       this.warmerFunction.grantInvoke(prewarmerFn)
 
       const provider = new Provider(this, "PrewarmerProvider", {
         onEventHandler: prewarmerFn,
-        logGroup: prewarmerLogGroup,
+        logGroup: this.props.warmerLogGroup,
       })
 
       // Create a deterministic version hash based on warmer configuration
@@ -656,7 +668,7 @@ export class NextjsSite extends Construct {
     }
   }
 
-  private getEnvironment() {
+  private getServerEnvironment() {
     return {
       CACHE_BUCKET_NAME: this.bucket.bucketName,
       CACHE_BUCKET_KEY_PREFIX: "_cache",
@@ -664,7 +676,11 @@ export class NextjsSite extends Construct {
       REVALIDATION_QUEUE_URL: this.queue.queueUrl,
       REVALIDATION_QUEUE_REGION: Stack.of(this).region,
       CACHE_DYNAMO_TABLE: this.table.tableName,
-      // Those 2 are used only for image optimizer
+    }
+  }
+
+  private getImageOptimizerEnvironment() {
+    return {
       BUCKET_NAME: this.bucket.bucketName,
       BUCKET_KEY_PREFIX: "_assets",
     }
@@ -682,7 +698,7 @@ export class NextjsSite extends Construct {
     originId?: string,
     fnProps?: DefaultFunctionProps
   ) {
-    const environment = this.getEnvironment()
+    const environment = this.getServerEnvironment()
     const fn = new CdkFunction(this, `${key}Function`, {
       ...fnProps,
       runtime: fnProps?.runtime ?? Runtime.NODEJS_24_X,
@@ -690,6 +706,7 @@ export class NextjsSite extends Construct {
       memorySize: fnProps?.memorySize ?? 1024,
       timeout: fnProps?.timeout ?? Duration.seconds(10),
       loggingFormat: fnProps?.loggingFormat ?? LoggingFormat.JSON,
+      logGroup: fnProps?.logGroup ?? this.props.logGroup,
       handler: origin.handler,
       code: Code.fromAsset(path.join(this.openNextPath, "..", origin.bundle)),
       environment: {
@@ -720,12 +737,13 @@ export class NextjsSite extends Construct {
    * preventing direct access to the Lambda function URL.
    */
   private createImageOptimizerOrigin(origin: OpenNextFunctionOrigin) {
-    const environment = this.getEnvironment()
+    const environment = this.getImageOptimizerEnvironment()
     const fn = new CdkFunction(this, "imageOptimizerFunction", {
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       memorySize: 1024,
       loggingFormat: LoggingFormat.JSON,
+      logGroup: this.props.logGroup,
       handler: origin.handler,
       code: Code.fromAsset(path.join(this.openNextPath, "..", origin.bundle)),
       environment,
