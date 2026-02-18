@@ -104,12 +104,12 @@ Any object.
 | <code><a href="#cdk-opennext.NextjsSite.property.cloudfrontFunctionCode">cloudfrontFunctionCode</a></code> | <code>string</code> | Returns the CloudFront Function code string that injects x-forwarded-host and geo headers. |
 | <code><a href="#cdk-opennext.NextjsSite.property.customDomainUrl">customDomainUrl</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-opennext.NextjsSite.property.defaultServerFunction">defaultServerFunction</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | *No description.* |
-| <code><a href="#cdk-opennext.NextjsSite.property.functionUrlHost">functionUrlHost</a></code> | <code>string</code> | The host portion of the default server function URL (e.g. "abc123.lambda-url.us-east-1.on.aws"). |
 | <code><a href="#cdk-opennext.NextjsSite.property.origins">origins</a></code> | <code>{[ key: string ]: aws-cdk-lib.aws_cloudfront.IOrigin}</code> | CloudFront origins keyed by name. |
 | <code><a href="#cdk-opennext.NextjsSite.property.serverCachePolicy">serverCachePolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicy</code> | Cache policy for server/SSR origins (dynamic content). |
 | <code><a href="#cdk-opennext.NextjsSite.property.staticCachePolicy">staticCachePolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.ICachePolicy</code> | Cache policy for static/S3 origins. |
 | <code><a href="#cdk-opennext.NextjsSite.property.url">url</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-opennext.NextjsSite.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | The CloudFront distribution, only created if createDistribution is not false. |
+| <code><a href="#cdk-opennext.NextjsSite.property.defaultFunctionUrl">defaultFunctionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.FunctionUrl</code> | The function URL of the default server function. |
 
 ---
 
@@ -184,18 +184,6 @@ public readonly defaultServerFunction: Function;
 
 ---
 
-##### `functionUrlHost`<sup>Required</sup> <a name="functionUrlHost" id="cdk-opennext.NextjsSite.property.functionUrlHost"></a>
-
-```typescript
-public readonly functionUrlHost: string;
-```
-
-- *Type:* string
-
-The host portion of the default server function URL (e.g. "abc123.lambda-url.us-east-1.on.aws").
-
----
-
 ##### `origins`<sup>Required</sup> <a name="origins" id="cdk-opennext.NextjsSite.property.origins"></a>
 
 ```typescript
@@ -257,6 +245,18 @@ public readonly distribution: Distribution;
 - *Type:* aws-cdk-lib.aws_cloudfront.Distribution
 
 The CloudFront distribution, only created if createDistribution is not false.
+
+---
+
+##### `defaultFunctionUrl`<sup>Required</sup> <a name="defaultFunctionUrl" id="cdk-opennext.NextjsSite.property.defaultFunctionUrl"></a>
+
+```typescript
+public readonly defaultFunctionUrl: FunctionUrl;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.FunctionUrl
+
+The function URL of the default server function.
 
 ---
 
