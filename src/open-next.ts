@@ -186,9 +186,10 @@ export interface NextjsSiteProps {
   readonly defaultFunctionProps?: DefaultFunctionProps
 
   /**
-   * CloudWatch log group to use for all Lambda functions created by this construct.
-   * When set, all functions (server, image optimizer, revalidation, warmer, pre-warmer)
-   * will write logs to this log group.
+   * CloudWatch log group to use for the server, image optimizer, and
+   * revalidation functions. Can be overridden per-function via
+   * `defaultFunctionProps.logGroup`. Use `warmerLogGroup` for the
+   * warmer and pre-warmer functions.
    */
   readonly logGroup?: ILogGroup | undefined
 
@@ -705,7 +706,7 @@ export class NextjsSite extends Construct {
       memorySize: fnProps?.memorySize ?? 1024,
       timeout: fnProps?.timeout ?? Duration.seconds(10),
       loggingFormat: fnProps?.loggingFormat ?? LoggingFormat.JSON,
-      logGroup: this.props.logGroup,
+      logGroup: fnProps?.logGroup ?? this.props.logGroup,
       handler: origin.handler,
       code: Code.fromAsset(path.join(this.openNextPath, "..", origin.bundle)),
       environment: {

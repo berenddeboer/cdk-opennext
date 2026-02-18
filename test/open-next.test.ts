@@ -3,6 +3,7 @@ import * as os from "os"
 import * as path from "path"
 import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
+import { LogGroup } from "aws-cdk-lib/aws-logs"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Duration, Stack } from "aws-cdk-lib/core"
 import { NextjsSite } from "../src/open-next"
@@ -1320,6 +1321,252 @@ describe("NextjsSite", () => {
           DefaultTTL: 0,
         },
       })
+    })
+  })
+
+  describe("environment variable separation", () => {
+    it("should only set CACHE_BUCKET_NAME on server functions, not BUCKET_NAME", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      const functions = template.findResources("AWS::Lambda::Function")
+
+      // Find the default server function (memorySize 1024 with CACHE_BUCKET_NAME)
+      const serverFunction = Object.values(functions).find(
+        (fn: any) =>
+          fn.Properties?.MemorySize === 1024 &&
+          fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+
+      expect(serverFunction).toBeDefined()
+      const envVars = (serverFunction as any).Properties.Environment.Variables
+      expect(envVars.CACHE_BUCKET_NAME).toBeDefined()
+      expect(envVars.CACHE_BUCKET_KEY_PREFIX).toBe("_cache")
+      expect(envVars.BUCKET_NAME).toBeUndefined()
+      expect(envVars.BUCKET_KEY_PREFIX).toBeUndefined()
+    })
+
+    it("should only set BUCKET_NAME on image optimizer, not CACHE_BUCKET_NAME", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      const functions = template.findResources("AWS::Lambda::Function")
+
+      // Find the image optimizer function (has BUCKET_NAME env var)
+      const imageFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.BUCKET_NAME
+      )
+
+      expect(imageFunction).toBeDefined()
+      const envVars = (imageFunction as any).Properties.Environment.Variables
+      expect(envVars.BUCKET_NAME).toBeDefined()
+      expect(envVars.BUCKET_KEY_PREFIX).toBe("_assets")
+      expect(envVars.CACHE_BUCKET_NAME).toBeUndefined()
+      expect(envVars.CACHE_BUCKET_KEY_PREFIX).toBeUndefined()
+    })
+  })
+
+  describe("logGroup prop", () => {
+    it("should apply logGroup to server, image optimizer, and revalidation functions", () => {
+      const logGroup = new LogGroup(stack, "TestLogGroup")
+
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        logGroup,
+      })
+
+      const template = Template.fromStack(stack)
+      const functions = template.findResources("AWS::Lambda::Function")
+      const logGroupLogicalIds = Object.keys(
+        template.findResources("AWS::Logs::LogGroup")
+      )
+      const testLogGroupId = logGroupLogicalIds.find((id) =>
+        id.startsWith("TestLogGroup")
+      )
+      expect(testLogGroupId).toBeDefined()
+
+      // Server function (memorySize 1024 with CACHE_BUCKET_NAME)
+      const serverFn = Object.values(functions).find(
+        (fn: any) =>
+          fn.Properties?.MemorySize === 1024 &&
+          fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFn).toBeDefined()
+      expect(JSON.stringify((serverFn as any).Properties.LoggingConfig)).toContain(
+        testLogGroupId
+      )
+
+      // Image optimizer function (has BUCKET_NAME)
+      const imageFn = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.BUCKET_NAME
+      )
+      expect(imageFn).toBeDefined()
+      expect(JSON.stringify((imageFn as any).Properties.LoggingConfig)).toContain(
+        testLogGroupId
+      )
+
+      // Revalidation insert function (memorySize 128, timeout 900s)
+      const revalidationInsertFn = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Description === "Next.js revalidation data insert"
+      )
+      expect(revalidationInsertFn).toBeDefined()
+      expect(
+        JSON.stringify((revalidationInsertFn as any).Properties.LoggingConfig)
+      ).toContain(testLogGroupId)
+
+      // Revalidation consumer function
+      const revalidationFn = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Description === "Next.js revalidator"
+      )
+      expect(revalidationFn).toBeDefined()
+      expect(JSON.stringify((revalidationFn as any).Properties.LoggingConfig)).toContain(
+        testLogGroupId
+      )
+    })
+
+    it("should prefer defaultFunctionProps.logGroup over props.logGroup", () => {
+      const siteLogGroup = new LogGroup(stack, "SiteLogGroup")
+      const overrideLogGroup = new LogGroup(stack, "OverrideLogGroup")
+
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+        logGroup: siteLogGroup,
+        defaultFunctionProps: {
+          logGroup: overrideLogGroup,
+        },
+      })
+
+      const template = Template.fromStack(stack)
+      const functions = template.findResources("AWS::Lambda::Function")
+      const logGroupLogicalIds = Object.keys(
+        template.findResources("AWS::Logs::LogGroup")
+      )
+      const overrideLogGroupId = logGroupLogicalIds.find((id) =>
+        id.startsWith("OverrideLogGroup")
+      )
+      expect(overrideLogGroupId).toBeDefined()
+
+      // Server function should use the override log group
+      const serverFn = Object.values(functions).find(
+        (fn: any) =>
+          fn.Properties?.MemorySize === 1024 &&
+          fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFn).toBeDefined()
+      expect(JSON.stringify((serverFn as any).Properties.LoggingConfig)).toContain(
+        overrideLogGroupId
+      )
+    })
+  })
+
+  describe("warmerLogGroup prop", () => {
+    let warmerTestDir: string
+    let warmerOpenNextPath: string
+
+    beforeAll(() => {
+      warmerTestDir = fs.mkdtempSync(path.join(os.tmpdir(), "warmer-lg-test-"))
+      warmerOpenNextPath = path.join(warmerTestDir, ".open-next")
+
+      fs.mkdirSync(warmerOpenNextPath, { recursive: true })
+      fs.mkdirSync(path.join(warmerTestDir, "assets"), { recursive: true })
+      fs.mkdirSync(path.join(warmerTestDir, "server-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerTestDir, "image-optimization-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerTestDir, "revalidation-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerTestDir, "warmer-function"), {
+        recursive: true,
+      })
+      fs.mkdirSync(path.join(warmerOpenNextPath, "dynamodb-provider"), {
+        recursive: true,
+      })
+
+      const dummyHandler = "exports.handler = async (event) => ({ statusCode: 200 });"
+      fs.writeFileSync(
+        path.join(warmerTestDir, "server-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerTestDir, "image-optimization-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerTestDir, "revalidation-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerTestDir, "warmer-function", "index.js"),
+        dummyHandler
+      )
+      fs.writeFileSync(
+        path.join(warmerOpenNextPath, "dynamodb-provider", "index.js"),
+        dummyHandler
+      )
+
+      const outputWithWarmer = {
+        ...mockOpenNextOutput,
+        additionalProps: {
+          ...mockOpenNextOutput.additionalProps,
+          warmer: {
+            handler: "index.handler",
+            bundle: "warmer-function",
+          },
+        },
+      }
+      fs.writeFileSync(
+        path.join(warmerOpenNextPath, "open-next.output.json"),
+        JSON.stringify(outputWithWarmer)
+      )
+    })
+
+    afterAll(() => {
+      fs.rmSync(warmerTestDir, { recursive: true, force: true })
+    })
+
+    it("should apply warmerLogGroup to warmer and pre-warmer functions", () => {
+      const warmerStack = new Stack()
+      const logGroup = new LogGroup(warmerStack, "WarmerLogs")
+
+      new NextjsSite(warmerStack, "TestOpenNext", {
+        openNextPath: warmerOpenNextPath,
+        warmerLogGroup: logGroup,
+      })
+
+      const template = Template.fromStack(warmerStack)
+      const functions = template.findResources("AWS::Lambda::Function")
+      const logGroupLogicalIds = Object.keys(
+        template.findResources("AWS::Logs::LogGroup")
+      )
+      const warmerLogGroupId = logGroupLogicalIds.find((id) =>
+        id.startsWith("WarmerLogs")
+      )
+      expect(warmerLogGroupId).toBeDefined()
+
+      // Warmer function
+      const warmerFn = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Description === "Next.js warmer"
+      )
+      expect(warmerFn).toBeDefined()
+      expect(JSON.stringify((warmerFn as any).Properties.LoggingConfig)).toContain(
+        warmerLogGroupId
+      )
+
+      // Pre-warmer function
+      const prewarmerFn = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Description === "Next.js pre-warmer"
+      )
+      expect(prewarmerFn).toBeDefined()
+      expect(JSON.stringify((prewarmerFn as any).Properties.LoggingConfig)).toContain(
+        warmerLogGroupId
+      )
     })
   })
 })
