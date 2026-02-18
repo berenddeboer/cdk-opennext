@@ -32,6 +32,7 @@ import {
   Code,
   Function as CdkFunction,
   type FunctionOptions,
+  type FunctionUrl,
   FunctionUrlAuthType,
   InvokeMode,
   LoggingFormat,
@@ -269,11 +270,8 @@ export class NextjsSite extends Construct {
   /** The S3 bucket used for static assets and cache. */
   public readonly bucket: Bucket
 
-  /**
-   * The host portion of the default server function URL
-   * (e.g. "abc123.lambda-url.us-east-1.on.aws").
-   */
-  private _functionUrlHost!: string
+  /** The function URL of the default server function. */
+  public defaultFunctionUrl!: FunctionUrl
 
   private openNextOutput: OpenNextOutput
   private table: Table
@@ -287,14 +285,6 @@ export class NextjsSite extends Construct {
 
   public get defaultServerFunction(): CdkFunction {
     return this._defaultServerFunction
-  }
-
-  /**
-   * The host portion of the default server function URL
-   * (e.g. "abc123.lambda-url.us-east-1.on.aws").
-   */
-  public get functionUrlHost(): string {
-    return this._functionUrlHost
   }
 
   public get url(): string {
@@ -716,7 +706,7 @@ export class NextjsSite extends Construct {
     // Store reference to default server function
     if (key === "default") {
       this._defaultServerFunction = fn
-      this._functionUrlHost = Fn.parseDomainName(fnUrl.url)
+      this.defaultFunctionUrl = fnUrl
     }
 
     return new HttpOrigin(Fn.parseDomainName(fnUrl.url), {
