@@ -441,6 +441,37 @@ describe("NextjsSite", () => {
         MemorySize: 128,
       })
     })
+
+    it("should grant batch write permission to initialization Lambda", () => {
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      const functions = template.findResources("AWS::Lambda::Function")
+      const insertFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Description === "Next.js revalidation data insert"
+      )
+      expect(insertFunction).toBeDefined()
+
+      const roleLogicalId = (insertFunction as any).Properties.Role["Fn::GetAtt"][0]
+      const policies = template.findResources("AWS::IAM::Policy")
+      const insertFunctionPolicy = Object.values(policies).find((policy: any) =>
+        (policy.Properties?.Roles ?? []).some((role: any) => role.Ref === roleLogicalId)
+      )
+      expect(insertFunctionPolicy).toBeDefined()
+
+      const hasBatchWriteItem = (
+        insertFunctionPolicy as any
+      ).Properties.PolicyDocument.Statement.some((statement: any) => {
+        const actions = Array.isArray(statement.Action)
+          ? statement.Action
+          : [statement.Action]
+
+        return actions.includes("dynamodb:BatchWriteItem")
+      })
+      expect(hasBatchWriteItem).toBe(true)
+    })
   })
 
   describe("function URLs", () => {

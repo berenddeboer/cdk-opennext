@@ -457,6 +457,7 @@ export class NextjsSite extends Construct {
         CACHE_DYNAMO_TABLE: table.tableName,
       },
     })
+    table.grantReadWriteData(insertFn)
 
     const providerLogGroup = new LogGroup(this, "RevalidationProviderLogGroup", {
       retention: RetentionDays.ONE_DAY,
