@@ -717,10 +717,13 @@ export class NextjsSite extends Construct {
       return false
     }
 
+    // `sqs-lite` only changes how the server sends messages; it still targets
+    // the same SQS queue URL and revalidation Lambda consumer as `sqs`.
+    const queueMode = origin.queue ?? "sqs"
+
     return (
       !!this.openNextOutput.additionalProps?.revalidationFunction &&
-      origin.queue !== "direct" &&
-      origin.queue !== "dummy"
+      (queueMode === "sqs" || queueMode === "sqs-lite")
     )
   }
 

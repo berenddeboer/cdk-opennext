@@ -233,6 +233,50 @@ describe("NextjsSite", () => {
           (fn: any) => fn.Properties?.Description === "Next.js revalidator"
         )
       ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeUndefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables
+          ?.REVALIDATION_QUEUE_REGION
+      ).toBeUndefined()
+    })
+
+    it("should still provision the SQS queue for sqs-lite mode", () => {
+      const sqsLiteOutput = JSON.parse(JSON.stringify(mockOpenNextOutput))
+      sqsLiteOutput.origins.default.queue = "sqs-lite"
+
+      const fixture = createOpenNextFixture(sqsLiteOutput)
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: fixture.openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      template.hasResourceProperties("AWS::SQS::Queue", {
+        FifoQueue: true,
+        ReceiveMessageWaitTimeSeconds: 20,
+      })
+      template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+        BatchSize: 5,
+      })
+
+      const functions = template.findResources("AWS::Lambda::Function")
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables
+          ?.REVALIDATION_QUEUE_REGION
+      ).toBeDefined()
     })
 
     it("should skip the tag cache table when OpenNext disables tag cache", () => {
@@ -254,6 +298,14 @@ describe("NextjsSite", () => {
           (fn: any) => fn.Properties?.Description === "Next.js revalidation data insert"
         )
       ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.CACHE_DYNAMO_TABLE
+      ).toBeUndefined()
     })
 
     it("should skip revalidation resources when OpenNext disables incremental cache", () => {
