@@ -97,6 +97,75 @@ const site = new NextjsSite(this, "NextjsSite", {
 
 **Note**: Warming requires OpenNext 3.x+ with warmer support. If OpenNext doesn't provide a warmer bundle, warming will be skipped with a warning.
 
+## Revalidation Options
+
+This construct follows the OpenNext build output in `.open-next/open-next.output.json`.
+Configure revalidation behavior in `open-next.config.ts` and `NextjsSite` will only
+create the required resources.
+
+By default, OpenNext uses an SQS FIFO queue and a dedicated revalidation Lambda.
+
+### Low-volume revalidation without SQS
+
+If your app rarely invalidates pages, use OpenNext's built-in `direct` queue mode.
+This skips the SQS queue and revalidation consumer Lambda entirely.
+
+```typescript
+import type { OpenNextConfig } from "@opennextjs/aws/types/open-next"
+
+const config = {
+  default: {
+    override: {
+      queue: "direct",
+    },
+  },
+} satisfies OpenNextConfig
+
+export default config
+```
+
+### Disable tag invalidation
+
+Disable the tag cache if you do not use `revalidateTag` or `revalidatePath`.
+When disabled, the construct will not create the DynamoDB tag cache table or the
+initialization Lambda.
+
+```typescript
+import type { OpenNextConfig } from "@opennextjs/aws/types/open-next"
+
+const config = {
+  dangerous: {
+    disableTagCache: true,
+  },
+} satisfies OpenNextConfig
+
+export default config
+```
+
+This is generally only safe when you do not rely on App Router tag or path
+invalidations. It is most useful for Pages Router applications.
+
+### Disable incremental cache
+
+Disable the incremental cache only for SSR-only applications. When disabled,
+the construct will not create the revalidation queue, revalidation Lambda, or
+tag cache resources.
+
+```typescript
+import type { OpenNextConfig } from "@opennextjs/aws/types/open-next"
+
+const config = {
+  dangerous: {
+    disableIncrementalCache: true,
+  },
+} satisfies OpenNextConfig
+
+export default config
+```
+
+With incremental cache disabled, ISR, SSG, `revalidateTag`, and `revalidatePath`
+will not work.
+
 ## Custom Domain
 
 You can configure a custom domain in three ways:
