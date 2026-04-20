@@ -10,7 +10,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
   name: "cdk-opennext",
   packageManager: javascript.NodePackageManager.NPM,
   prettier: true,
-  typescriptVersion: "~6.0.3",
   prettierOptions: {
     settings: {
       trailingComma: TrailingComma.ES5,
