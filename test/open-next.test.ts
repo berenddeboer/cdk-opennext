@@ -278,6 +278,18 @@ describe("NextjsSite", () => {
           (fn: any) => fn.Properties?.Description === "Next.js revalidator"
         )
       ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.CACHE_DYNAMO_TABLE
+      ).toBeUndefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeUndefined()
+
       expect(
         Object.values(functions).some(
           (fn: any) => fn.Properties?.Description === "Next.js revalidation data insert"

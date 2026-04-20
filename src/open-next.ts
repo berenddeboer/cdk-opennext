@@ -308,6 +308,7 @@ export class NextjsSite extends Construct {
   public defaultFunctionUrl!: FunctionUrl
 
   private openNextOutput: OpenNextOutput
+  private readonly serverOrigins: OpenNextFunctionOrigin[]
   private table?: Table
   private queue?: Queue
 
@@ -359,6 +360,7 @@ export class NextjsSite extends Construct {
     this.openNextOutput = JSON.parse(
       readFileSync(path.join(this.openNextPath, "open-next.output.json"), "utf-8")
     ) as OpenNextOutput
+    this.serverOrigins = this.collectServerOrigins()
 
     this._customDomainName = props.customDomain?.domainName
     this.behaviors = this.openNextOutput.behaviors
@@ -694,7 +696,7 @@ export class NextjsSite extends Construct {
     }
   }
 
-  private getServerOrigins() {
+  private collectServerOrigins() {
     return Object.entries(this.openNextOutput.origins).flatMap(([key, origin]) => {
       if (key === "imageOptimizer" || origin.type !== "function") {
         return []
@@ -715,7 +717,11 @@ export class NextjsSite extends Construct {
       return false
     }
 
-    return origin.queue !== "direct" && origin.queue !== "dummy"
+    return (
+      !!this.openNextOutput.additionalProps?.revalidationFunction &&
+      origin.queue !== "direct" &&
+      origin.queue !== "dummy"
+    )
   }
 
   private usesRevalidationTable(origin: OpenNextFunctionOrigin) {
@@ -735,11 +741,11 @@ export class NextjsSite extends Construct {
   }
 
   private needsRevalidationQueue() {
-    return this.getServerOrigins().some((origin) => this.usesRevalidationQueue(origin))
+    return this.serverOrigins.some((origin) => this.usesRevalidationQueue(origin))
   }
 
   private needsRevalidationTable() {
-    return this.getServerOrigins().some((origin) => this.usesRevalidationTable(origin))
+    return this.serverOrigins.some((origin) => this.usesRevalidationTable(origin))
   }
 
   private getServerEnvironment(origin: OpenNextFunctionOrigin) {
