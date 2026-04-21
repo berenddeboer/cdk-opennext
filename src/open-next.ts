@@ -721,10 +721,7 @@ export class NextjsSite extends Construct {
     // the same SQS queue URL and revalidation Lambda consumer as `sqs`.
     const queueMode = origin.queue ?? "sqs"
 
-    return (
-      !!this.openNextOutput.additionalProps?.revalidationFunction &&
-      (queueMode === "sqs" || queueMode === "sqs-lite")
-    )
+    return queueMode === "sqs" || queueMode === "sqs-lite"
   }
 
   private usesRevalidationTable(origin: OpenNextFunctionOrigin) {
@@ -744,7 +741,10 @@ export class NextjsSite extends Construct {
   }
 
   private needsRevalidationQueue() {
-    return this.serverOrigins.some((origin) => this.usesRevalidationQueue(origin))
+    return (
+      !!this.openNextOutput.additionalProps?.revalidationFunction &&
+      this.serverOrigins.some((origin) => this.usesRevalidationQueue(origin))
+    )
   }
 
   private needsRevalidationTable() {
@@ -777,14 +777,14 @@ export class NextjsSite extends Construct {
     }
   }
 
-  private grantPermissions(grantable: IGrantable, origin?: OpenNextFunctionOrigin) {
+  private grantServerPermissions(grantable: IGrantable, origin: OpenNextFunctionOrigin) {
     this.bucket.grantReadWrite(grantable)
 
-    if (origin && this.usesRevalidationTable(origin) && this.table) {
+    if (this.usesRevalidationTable(origin) && this.table) {
       this.table.grantReadWriteData(grantable)
     }
 
-    if (origin && this.usesRevalidationQueue(origin) && this.queue) {
+    if (this.usesRevalidationQueue(origin) && this.queue) {
       this.queue.grantSendMessages(grantable)
     }
   }
@@ -815,7 +815,7 @@ export class NextjsSite extends Construct {
       authType: FunctionUrlAuthType.NONE,
       invokeMode: origin.streaming ? InvokeMode.RESPONSE_STREAM : InvokeMode.BUFFERED,
     })
-    this.grantPermissions(fn, origin)
+    this.grantServerPermissions(fn, origin)
 
     // Store reference to default server function
     if (key === "default") {

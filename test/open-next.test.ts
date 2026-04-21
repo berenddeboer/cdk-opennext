@@ -247,6 +247,39 @@ describe("NextjsSite", () => {
       ).toBeUndefined()
     })
 
+    it("should skip the revalidation queue when OpenNext uses dummy mode", () => {
+      const dummyOutput = JSON.parse(JSON.stringify(mockOpenNextOutput))
+      dummyOutput.origins.default.queue = "dummy"
+
+      const fixture = createOpenNextFixture(dummyOutput)
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: fixture.openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      template.resourceCountIs("AWS::SQS::Queue", 0)
+      template.resourceCountIs("AWS::Lambda::EventSourceMapping", 0)
+
+      const functions = template.findResources("AWS::Lambda::Function")
+      expect(
+        Object.values(functions).some(
+          (fn: any) => fn.Properties?.Description === "Next.js revalidator"
+        )
+      ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeUndefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables
+          ?.REVALIDATION_QUEUE_REGION
+      ).toBeUndefined()
+    })
+
     it("should still provision the SQS queue for sqs-lite mode", () => {
       const sqsLiteOutput = JSON.parse(JSON.stringify(mockOpenNextOutput))
       sqsLiteOutput.origins.default.queue = "sqs-lite"
@@ -313,6 +346,7 @@ describe("NextjsSite", () => {
         JSON.stringify(mockOpenNextOutput)
       )
       disabledIncrementalCacheOutput.additionalProps.disableIncrementalCache = true
+      delete disabledIncrementalCacheOutput.additionalProps.initializationFunction
 
       const fixture = createOpenNextFixture(disabledIncrementalCacheOutput)
       new NextjsSite(stack, "TestOpenNext", {
