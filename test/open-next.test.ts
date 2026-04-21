@@ -10,8 +10,8 @@ import { NextjsSite } from "../src/open-next"
 
 describe("NextjsSite", () => {
   let stack: Stack
-  let testDir: string
   let openNextPath: string
+  const fixtureDirs: string[] = []
 
   const mockOpenNextOutput = {
     edgeFunctions: {},
@@ -33,6 +33,9 @@ describe("NextjsSite", () => {
         handler: "index.handler",
         bundle: "server-function",
         streaming: false,
+        incrementalCache: "s3" as const,
+        queue: "sqs" as const,
+        tagCache: "dynamodb" as const,
       },
       imageOptimizer: {
         type: "function" as const,
@@ -64,56 +67,72 @@ describe("NextjsSite", () => {
       },
       initializationFunction: {
         handler: "index.handler",
-        bundle: "initialization-function",
+        bundle: ".open-next/dynamodb-provider",
       },
     },
   }
 
+  const dummyHandler = "exports.handler = async (event) => ({ statusCode: 200 });"
+
+  const createOpenNextFixture = (output = mockOpenNextOutput) => {
+    const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "open-next-test-"))
+    const fixtureOpenNextPath = path.join(fixtureDir, ".open-next")
+    fixtureDirs.push(fixtureDir)
+
+    fs.mkdirSync(fixtureOpenNextPath, { recursive: true })
+    fs.mkdirSync(path.join(fixtureDir, "assets"), { recursive: true })
+    fs.mkdirSync(path.join(fixtureDir, "server-function"), { recursive: true })
+    fs.mkdirSync(path.join(fixtureDir, "image-optimization-function"), {
+      recursive: true,
+    })
+    fs.mkdirSync(path.join(fixtureDir, "revalidation-function"), {
+      recursive: true,
+    })
+    fs.mkdirSync(path.join(fixtureDir, "initialization-function"), {
+      recursive: true,
+    })
+    fs.mkdirSync(path.join(fixtureOpenNextPath, "dynamodb-provider"), {
+      recursive: true,
+    })
+
+    fs.writeFileSync(path.join(fixtureDir, "server-function", "index.js"), dummyHandler)
+    fs.writeFileSync(
+      path.join(fixtureDir, "image-optimization-function", "index.js"),
+      dummyHandler
+    )
+    fs.writeFileSync(
+      path.join(fixtureDir, "revalidation-function", "index.js"),
+      dummyHandler
+    )
+    fs.writeFileSync(
+      path.join(fixtureDir, "initialization-function", "index.js"),
+      dummyHandler
+    )
+    fs.writeFileSync(
+      path.join(fixtureOpenNextPath, "dynamodb-provider", "index.js"),
+      dummyHandler
+    )
+
+    fs.writeFileSync(
+      path.join(fixtureOpenNextPath, "open-next.output.json"),
+      JSON.stringify(output)
+    )
+
+    return {
+      fixtureDir,
+      openNextPath: fixtureOpenNextPath,
+    }
+  }
+
   beforeAll(() => {
-    // Create temporary directory structure for tests
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "open-next-test-"))
-    openNextPath = path.join(testDir, ".open-next")
-
-    // Create necessary directories
-    fs.mkdirSync(openNextPath, { recursive: true })
-    fs.mkdirSync(path.join(testDir, "assets"), { recursive: true })
-    fs.mkdirSync(path.join(testDir, "server-function"), { recursive: true })
-    fs.mkdirSync(path.join(testDir, "image-optimization-function"), {
-      recursive: true,
-    })
-    fs.mkdirSync(path.join(testDir, "revalidation-function"), {
-      recursive: true,
-    })
-    fs.mkdirSync(path.join(openNextPath, "dynamodb-provider"), {
-      recursive: true,
-    })
-
-    // Create dummy Lambda handler files
-    const dummyHandler = "exports.handler = async (event) => ({ statusCode: 200 });"
-    fs.writeFileSync(path.join(testDir, "server-function", "index.js"), dummyHandler)
-    fs.writeFileSync(
-      path.join(testDir, "image-optimization-function", "index.js"),
-      dummyHandler
-    )
-    fs.writeFileSync(
-      path.join(testDir, "revalidation-function", "index.js"),
-      dummyHandler
-    )
-    fs.writeFileSync(
-      path.join(openNextPath, "dynamodb-provider", "index.js"),
-      dummyHandler
-    )
-
-    // Create open-next.output.json
-    fs.writeFileSync(
-      path.join(openNextPath, "open-next.output.json"),
-      JSON.stringify(mockOpenNextOutput)
-    )
+    const fixture = createOpenNextFixture()
+    openNextPath = fixture.openNextPath
   })
 
   afterAll(() => {
-    // Clean up test directory
-    fs.rmSync(testDir, { recursive: true, force: true })
+    fixtureDirs.forEach((dir) => {
+      fs.rmSync(dir, { recursive: true, force: true })
+    })
   })
 
   beforeEach(() => {
@@ -193,6 +212,175 @@ describe("NextjsSite", () => {
         FifoQueue: true,
         ReceiveMessageWaitTimeSeconds: 20,
       })
+    })
+
+    it("should skip the revalidation queue when OpenNext uses direct mode", () => {
+      const directOutput = JSON.parse(JSON.stringify(mockOpenNextOutput))
+      directOutput.origins.default.queue = "direct"
+
+      const fixture = createOpenNextFixture(directOutput)
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: fixture.openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      template.resourceCountIs("AWS::SQS::Queue", 0)
+      template.resourceCountIs("AWS::Lambda::EventSourceMapping", 0)
+
+      const functions = template.findResources("AWS::Lambda::Function")
+      expect(
+        Object.values(functions).some(
+          (fn: any) => fn.Properties?.Description === "Next.js revalidator"
+        )
+      ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeUndefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables
+          ?.REVALIDATION_QUEUE_REGION
+      ).toBeUndefined()
+    })
+
+    it("should skip the revalidation queue when OpenNext uses dummy mode", () => {
+      const dummyOutput = JSON.parse(JSON.stringify(mockOpenNextOutput))
+      dummyOutput.origins.default.queue = "dummy"
+
+      const fixture = createOpenNextFixture(dummyOutput)
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: fixture.openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      template.resourceCountIs("AWS::SQS::Queue", 0)
+      template.resourceCountIs("AWS::Lambda::EventSourceMapping", 0)
+
+      const functions = template.findResources("AWS::Lambda::Function")
+      expect(
+        Object.values(functions).some(
+          (fn: any) => fn.Properties?.Description === "Next.js revalidator"
+        )
+      ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeUndefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables
+          ?.REVALIDATION_QUEUE_REGION
+      ).toBeUndefined()
+    })
+
+    it("should still provision the SQS queue for sqs-lite mode", () => {
+      const sqsLiteOutput = JSON.parse(JSON.stringify(mockOpenNextOutput))
+      sqsLiteOutput.origins.default.queue = "sqs-lite"
+
+      const fixture = createOpenNextFixture(sqsLiteOutput)
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: fixture.openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      template.hasResourceProperties("AWS::SQS::Queue", {
+        FifoQueue: true,
+        ReceiveMessageWaitTimeSeconds: 20,
+      })
+      template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+        BatchSize: 5,
+      })
+
+      const functions = template.findResources("AWS::Lambda::Function")
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables
+          ?.REVALIDATION_QUEUE_REGION
+      ).toBeDefined()
+    })
+
+    it("should skip the tag cache table when OpenNext disables tag cache", () => {
+      const disabledTagCacheOutput = JSON.parse(JSON.stringify(mockOpenNextOutput))
+      disabledTagCacheOutput.additionalProps.disableTagCache = true
+      delete disabledTagCacheOutput.additionalProps.initializationFunction
+
+      const fixture = createOpenNextFixture(disabledTagCacheOutput)
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: fixture.openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      template.resourceCountIs("AWS::DynamoDB::GlobalTable", 0)
+
+      const functions = template.findResources("AWS::Lambda::Function")
+      expect(
+        Object.values(functions).some(
+          (fn: any) => fn.Properties?.Description === "Next.js revalidation data insert"
+        )
+      ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.CACHE_DYNAMO_TABLE
+      ).toBeUndefined()
+    })
+
+    it("should skip revalidation resources when OpenNext disables incremental cache", () => {
+      const disabledIncrementalCacheOutput = JSON.parse(
+        JSON.stringify(mockOpenNextOutput)
+      )
+      disabledIncrementalCacheOutput.additionalProps.disableIncrementalCache = true
+      delete disabledIncrementalCacheOutput.additionalProps.initializationFunction
+
+      const fixture = createOpenNextFixture(disabledIncrementalCacheOutput)
+      new NextjsSite(stack, "TestOpenNext", {
+        openNextPath: fixture.openNextPath,
+      })
+
+      const template = Template.fromStack(stack)
+      template.resourceCountIs("AWS::DynamoDB::GlobalTable", 0)
+      template.resourceCountIs("AWS::SQS::Queue", 0)
+      template.resourceCountIs("AWS::Lambda::EventSourceMapping", 0)
+
+      const functions = template.findResources("AWS::Lambda::Function")
+      expect(
+        Object.values(functions).some(
+          (fn: any) => fn.Properties?.Description === "Next.js revalidator"
+        )
+      ).toBe(false)
+
+      const serverFunction = Object.values(functions).find(
+        (fn: any) => fn.Properties?.Environment?.Variables?.CACHE_BUCKET_NAME
+      )
+      expect(serverFunction).toBeDefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.CACHE_DYNAMO_TABLE
+      ).toBeUndefined()
+      expect(
+        (serverFunction as any).Properties?.Environment?.Variables?.REVALIDATION_QUEUE_URL
+      ).toBeUndefined()
+
+      expect(
+        Object.values(functions).some(
+          (fn: any) => fn.Properties?.Description === "Next.js revalidation data insert"
+        )
+      ).toBe(false)
     })
 
     it("should create Lambda functions for server and image optimization", () => {
@@ -510,7 +698,6 @@ describe("NextjsSite", () => {
         recursive: true,
       })
 
-      const dummyHandler = "exports.handler = async (event) => ({ statusCode: 200 });"
       fs.writeFileSync(
         path.join(streamingTestDir, "server-function", "index.js"),
         dummyHandler
@@ -881,7 +1068,6 @@ describe("NextjsSite", () => {
       })
 
       // Create dummy handler files
-      const dummyHandler = "exports.handler = async (event) => ({ statusCode: 200 });"
       fs.writeFileSync(
         path.join(warmerTestDir, "server-function", "index.js"),
         dummyHandler
@@ -1520,7 +1706,6 @@ describe("NextjsSite", () => {
         recursive: true,
       })
 
-      const dummyHandler = "exports.handler = async (event) => ({ statusCode: 200 });"
       fs.writeFileSync(
         path.join(warmerTestDir, "server-function", "index.js"),
         dummyHandler

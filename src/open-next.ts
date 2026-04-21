@@ -62,9 +62,29 @@ type BaseFunction = {
   bundle: string
 }
 
+type OpenNextQueue = "direct" | "dummy" | "sqs" | "sqs-lite"
+
+type OpenNextIncrementalCache =
+  | "dummy"
+  | "fs-dev"
+  | "multi-tier-ddb-s3"
+  | "s3"
+  | "s3-lite"
+
+type OpenNextTagCache =
+  | "dummy"
+  | "dynamodb"
+  | "dynamodb-lite"
+  | "dynamodb-nextMode"
+  | "fs-dev"
+  | "fs-dev-nextMode"
+
 type OpenNextFunctionOrigin = {
   type: "function"
   streaming?: boolean
+  queue?: OpenNextQueue
+  incrementalCache?: OpenNextIncrementalCache
+  tagCache?: OpenNextTagCache
 } & BaseFunction
 
 type OpenNextS3Origin = {
@@ -288,8 +308,9 @@ export class NextjsSite extends Construct {
   public defaultFunctionUrl!: FunctionUrl
 
   private openNextOutput: OpenNextOutput
-  private table: Table
-  private queue: Queue
+  private readonly serverOrigins: OpenNextFunctionOrigin[]
+  private table?: Table
+  private queue?: Queue
 
   private openNextPath: string
   private _defaultServerFunction!: CdkFunction
@@ -339,6 +360,7 @@ export class NextjsSite extends Construct {
     this.openNextOutput = JSON.parse(
       readFileSync(path.join(this.openNextPath, "open-next.output.json"), "utf-8")
     ) as OpenNextOutput
+    this.serverOrigins = this.collectServerOrigins()
 
     this._customDomainName = props.customDomain?.domainName
     this.behaviors = this.openNextOutput.behaviors
@@ -371,8 +393,12 @@ export class NextjsSite extends Construct {
       removalPolicy: RemovalPolicy.DESTROY,
       enforceSSL: true,
     })
-    this.table = this.createRevalidationTable()
-    this.queue = this.createRevalidationQueue()
+    this.table = this.needsRevalidationTable()
+      ? this.createRevalidationTable()
+      : undefined
+    this.queue = this.needsRevalidationQueue()
+      ? this.createRevalidationQueue()
+      : undefined
 
     // Use provided certificate or create one if hostedZone is available
     const certificate =
@@ -441,12 +467,14 @@ export class NextjsSite extends Construct {
     })
 
     const initFn = this.openNextOutput.additionalProps?.initializationFunction
+    if (!initFn) {
+      return table
+    }
 
     const insertFn = new CdkFunction(this, "RevalidationInsertFunction", {
       description: "Next.js revalidation data insert",
-      handler: initFn?.handler ?? "index.handler",
-      // code: Code.fromAsset(initFn?.bundle ?? ""),
-      code: Code.fromAsset(path.join(this.openNextPath, "dynamodb-provider")),
+      handler: initFn.handler,
+      code: Code.fromAsset(path.join(this.openNextPath, "..", initFn.bundle)),
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       timeout: Duration.minutes(15),
@@ -521,22 +549,21 @@ export class NextjsSite extends Construct {
   }
 
   private createRevalidationQueue() {
+    const revalidationFn = this.openNextOutput.additionalProps?.revalidationFunction
+    if (!revalidationFn) {
+      throw new Error(
+        "OpenNext did not provide a revalidation function bundle for the SQS queue."
+      )
+    }
+
     const queue = new Queue(this, "RevalidationQueue", {
       fifo: true,
       receiveMessageWaitTime: Duration.seconds(20),
     })
     const consumer = new CdkFunction(this, "RevalidationFunction", {
       description: "Next.js revalidator",
-      handler: "index.handler",
-      code: Code.fromAsset(
-        this.openNextOutput.additionalProps?.revalidationFunction?.bundle
-          ? path.join(
-              this.openNextPath,
-              "..",
-              this.openNextOutput.additionalProps?.revalidationFunction?.bundle
-            )
-          : ""
-      ),
+      handler: revalidationFn.handler,
+      code: Code.fromAsset(path.join(this.openNextPath, "..", revalidationFn.bundle)),
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       timeout: Duration.seconds(30),
@@ -669,15 +696,78 @@ export class NextjsSite extends Construct {
     }
   }
 
-  private getServerEnvironment() {
-    return {
+  private collectServerOrigins() {
+    return Object.entries(this.openNextOutput.origins).flatMap(([key, origin]) => {
+      if (key === "imageOptimizer" || origin.type !== "function") {
+        return []
+      }
+      return [origin]
+    })
+  }
+
+  private usesIncrementalCache(origin: OpenNextFunctionOrigin) {
+    return (
+      this.openNextOutput.additionalProps?.disableIncrementalCache !== true &&
+      origin.incrementalCache !== "dummy"
+    )
+  }
+
+  private usesRevalidationQueue(origin: OpenNextFunctionOrigin) {
+    if (!this.usesIncrementalCache(origin)) {
+      return false
+    }
+
+    // `sqs-lite` only changes how the server sends messages; it still targets
+    // the same SQS queue URL and revalidation Lambda consumer as `sqs`.
+    const queueMode = origin.queue ?? "sqs"
+
+    return queueMode === "sqs" || queueMode === "sqs-lite"
+  }
+
+  private usesRevalidationTable(origin: OpenNextFunctionOrigin) {
+    if (
+      !this.usesIncrementalCache(origin) ||
+      this.openNextOutput.additionalProps?.disableTagCache === true
+    ) {
+      return false
+    }
+
+    return (
+      origin.tagCache === undefined ||
+      origin.tagCache === "dynamodb" ||
+      origin.tagCache === "dynamodb-lite" ||
+      origin.tagCache === "dynamodb-nextMode"
+    )
+  }
+
+  private needsRevalidationQueue() {
+    return (
+      !!this.openNextOutput.additionalProps?.revalidationFunction &&
+      this.serverOrigins.some((origin) => this.usesRevalidationQueue(origin))
+    )
+  }
+
+  private needsRevalidationTable() {
+    return this.serverOrigins.some((origin) => this.usesRevalidationTable(origin))
+  }
+
+  private getServerEnvironment(origin: OpenNextFunctionOrigin) {
+    const environment: Record<string, string> = {
       CACHE_BUCKET_NAME: this.bucket.bucketName,
       CACHE_BUCKET_KEY_PREFIX: "_cache",
       CACHE_BUCKET_REGION: Stack.of(this).region,
-      REVALIDATION_QUEUE_URL: this.queue.queueUrl,
-      REVALIDATION_QUEUE_REGION: Stack.of(this).region,
-      CACHE_DYNAMO_TABLE: this.table.tableName,
     }
+
+    if (this.usesRevalidationQueue(origin) && this.queue) {
+      environment.REVALIDATION_QUEUE_URL = this.queue.queueUrl
+      environment.REVALIDATION_QUEUE_REGION = Stack.of(this).region
+    }
+
+    if (this.usesRevalidationTable(origin) && this.table) {
+      environment.CACHE_DYNAMO_TABLE = this.table.tableName
+    }
+
+    return environment
   }
 
   private getImageOptimizerEnvironment() {
@@ -687,10 +777,16 @@ export class NextjsSite extends Construct {
     }
   }
 
-  private grantPermissions(grantable: IGrantable) {
+  private grantServerPermissions(grantable: IGrantable, origin: OpenNextFunctionOrigin) {
     this.bucket.grantReadWrite(grantable)
-    this.table.grantReadWriteData(grantable)
-    this.queue.grantSendMessages(grantable)
+
+    if (this.usesRevalidationTable(origin) && this.table) {
+      this.table.grantReadWriteData(grantable)
+    }
+
+    if (this.usesRevalidationQueue(origin) && this.queue) {
+      this.queue.grantSendMessages(grantable)
+    }
   }
 
   private createFunctionOrigin(
@@ -699,7 +795,7 @@ export class NextjsSite extends Construct {
     originId?: string,
     fnProps?: DefaultFunctionProps
   ) {
-    const environment = this.getServerEnvironment()
+    const environment = this.getServerEnvironment(origin)
     const fn = new CdkFunction(this, `${key}Function`, {
       ...fnProps,
       runtime: fnProps?.runtime ?? Runtime.NODEJS_24_X,
@@ -719,7 +815,7 @@ export class NextjsSite extends Construct {
       authType: FunctionUrlAuthType.NONE,
       invokeMode: origin.streaming ? InvokeMode.RESPONSE_STREAM : InvokeMode.BUFFERED,
     })
-    this.grantPermissions(fn)
+    this.grantServerPermissions(fn, origin)
 
     // Store reference to default server function
     if (key === "default") {
@@ -755,7 +851,7 @@ export class NextjsSite extends Construct {
       authType: FunctionUrlAuthType.AWS_IAM,
     })
 
-    this.grantPermissions(fn)
+    this.bucket.grantReadWrite(fn)
 
     // Use FunctionUrlOrigin.withOriginAccessControl which:
     // 1. Creates an OAC for Lambda function URLs
