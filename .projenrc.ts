@@ -52,6 +52,26 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
 })
 
+const dependabot = project.github?.addDependabot()
+if (dependabot) {
+  dependabot.config.updates = [
+    {
+      "package-ecosystem": "github-actions",
+      directory: "/",
+      "commit-message": {
+        prefix: "chore(ci)",
+      },
+      schedule: {
+        interval: github.DependabotScheduleInterval.WEEKLY,
+      },
+      allow: [
+        { "dependency-name": "anthropics/claude-code-action" },
+        { "dependency-name": "reviewdog/action-actionlint" },
+      ],
+    },
+  ]
+}
+
 // Add npm scripts for husky and commitlint
 project.addScripts({
   prepare: "husky",
