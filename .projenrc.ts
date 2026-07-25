@@ -43,9 +43,11 @@ const project = new awscdk.AwsCdkConstructLibrary({
       },
     },
   },
-  // Dependabot covers GH Actions; disable projen upgrade-main (GITHUB_TOKEN
-  // cannot push workflow file changes without workflows permission).
-  depsUpgrade: false,
+  // Keep `npx projen upgrade` locally; disable the scheduled upgrade-main
+  // workflow (GITHUB_TOKEN cannot push workflow file changes).
+  depsUpgradeOptions: {
+    workflow: false,
+  },
 })
 
 const dependabot = project.github?.addDependabot()
