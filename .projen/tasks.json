@@ -195,10 +195,6 @@
         }
       ]
     },
-    "post-upgrade": {
-      "name": "post-upgrade",
-      "description": "Runs after upgrading dependencies"
-    },
     "pre-compile": {
       "name": "pre-compile",
       "description": "Prepare the project for compilation"
@@ -263,30 +259,6 @@
       "steps": [
         {
           "builtin": "release/reset-version"
-        }
-      ]
-    },
-    "upgrade": {
-      "name": "upgrade",
-      "description": "upgrade dependencies",
-      "env": {
-        "CI": "0"
-      },
-      "steps": [
-        {
-          "exec": "npx npm-check-updates@20 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@types/jest,@types/node,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,prettier,projen,ts-jest,ts-node,typescript"
-        },
-        {
-          "exec": "npm install"
-        },
-        {
-          "exec": "npm update @commitlint/cli @commitlint/config-conventional @types/jest @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser commit-and-tag-version eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint husky jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii prettier projen ts-jest ts-node typescript aws-cdk-lib constructs"
-        },
-        {
-          "exec": "npx projen"
-        },
-        {
-          "spawn": "post-upgrade"
         }
       ]
     },

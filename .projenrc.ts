@@ -43,17 +43,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
       },
     },
   },
-  depsUpgradeOptions: {
-    workflowOptions: {
-      projenCredentials: github.GithubCredentials.fromPersonalAccessToken({
-        secret: "GITHUB_TOKEN",
-      }),
-      permissions: {
-        contents: github.workflows.JobPermission.WRITE,
-        pullRequests: github.workflows.JobPermission.WRITE,
-      },
-    },
-  },
+  // Dependabot covers GH Actions; disable projen upgrade-main (GITHUB_TOKEN
+  // cannot push workflow file changes without workflows permission).
+  depsUpgrade: false,
 })
 
 const dependabot = project.github?.addDependabot()
