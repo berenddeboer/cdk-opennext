@@ -43,16 +43,10 @@ const project = new awscdk.AwsCdkConstructLibrary({
       },
     },
   },
+  // Keep `npx projen upgrade` locally; disable the scheduled upgrade-main
+  // workflow (GITHUB_TOKEN cannot push workflow file changes).
   depsUpgradeOptions: {
-    workflowOptions: {
-      projenCredentials: github.GithubCredentials.fromPersonalAccessToken({
-        secret: "GITHUB_TOKEN",
-      }),
-      permissions: {
-        contents: github.workflows.JobPermission.WRITE,
-        pullRequests: github.workflows.JobPermission.WRITE,
-      },
-    },
+    workflow: false,
   },
 })
 
