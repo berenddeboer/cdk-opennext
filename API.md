@@ -43,6 +43,7 @@ new NextjsSite(scope: Construct, id: string, props: NextjsSiteProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-opennext.NextjsSite.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-opennext.NextjsSite.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -53,6 +54,27 @@ public toString(): string
 ```
 
 Returns a string representation of this construct.
+
+##### `with` <a name="with" id="cdk-opennext.NextjsSite.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-opennext.NextjsSite.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
 
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
@@ -298,6 +320,7 @@ const defaultFunctionProps: DefaultFunctionProps = { ... }
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.deadLetterQueueEnabled">deadLetterQueueEnabled</a></code> | <code>boolean</code> | Enabled DLQ. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.deadLetterTopic">deadLetterTopic</a></code> | <code>aws-cdk-lib.aws_sns.ITopic</code> | The SNS topic to use as a DLQ. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.description">description</a></code> | <code>string</code> | A description of the function. |
+| <code><a href="#cdk-opennext.DefaultFunctionProps.property.durableConfig">durableConfig</a></code> | <code>aws-cdk-lib.aws_lambda.DurableConfig</code> | The durable configuration for the function. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.environment">environment</a></code> | <code>{[ key: string ]: string}</code> | Key-value pairs that Lambda caches and makes available for your Lambda functions. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.environmentEncryption">environmentEncryption</a></code> | <code>aws-cdk-lib.interfaces.aws_kms.IKeyRef</code> | The AWS KMS key that's used to encrypt your function's environment variables. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.ephemeralStorageSize">ephemeralStorageSize</a></code> | <code>aws-cdk-lib.Size</code> | The size of the function’s /tmp directory in MiB. |
@@ -310,7 +333,7 @@ const defaultFunctionProps: DefaultFunctionProps = { ... }
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.layers">layers</a></code> | <code>aws-cdk-lib.aws_lambda.ILayerVersion[]</code> | A list of layers to add to the function's execution environment. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.logFormat">logFormat</a></code> | <code>string</code> | Sets the logFormat for the function. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.loggingFormat">loggingFormat</a></code> | <code>aws-cdk-lib.aws_lambda.LoggingFormat</code> | Sets the loggingFormat for the function. |
-| <code><a href="#cdk-opennext.DefaultFunctionProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.aws_logs.ILogGroup</code> | The log group the function sends logs to. |
+| <code><a href="#cdk-opennext.DefaultFunctionProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.interfaces.aws_logs.ILogGroupRef</code> | The log group the function sends logs to. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.logRemovalPolicy">logRemovalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | Determine the removal policy of the log group that is auto-created by this construct. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.logRetention">logRetention</a></code> | <code>aws-cdk-lib.aws_logs.RetentionDays</code> | The number of days log events are kept in CloudWatch Logs. |
 | <code><a href="#cdk-opennext.DefaultFunctionProps.property.logRetentionRetryOptions">logRetentionRetryOptions</a></code> | <code>aws-cdk-lib.aws_lambda.LogRetentionRetryOptions</code> | When log retention is specified, a custom resource attempts to create the CloudWatch log group. |
@@ -592,6 +615,22 @@ A description of the function.
 
 ---
 
+##### `durableConfig`<sup>Optional</sup> <a name="durableConfig" id="cdk-opennext.DefaultFunctionProps.property.durableConfig"></a>
+
+```typescript
+public readonly durableConfig: DurableConfig;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.DurableConfig
+- *Default:* No durable configuration
+
+The durable configuration for the function.
+
+If durability is added to an existing function, a resource replacement will be triggered.
+See the 'durableConfig' section in the module README for more details.
+
+---
+
 ##### `environment`<sup>Optional</sup> <a name="environment" id="cdk-opennext.DefaultFunctionProps.property.environment"></a>
 
 ```typescript
@@ -769,10 +808,10 @@ Sets the loggingFormat for the function.
 ##### `logGroup`<sup>Optional</sup> <a name="logGroup" id="cdk-opennext.DefaultFunctionProps.property.logGroup"></a>
 
 ```typescript
-public readonly logGroup: ILogGroup;
+public readonly logGroup: ILogGroupRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_logs.ILogGroup
+- *Type:* aws-cdk-lib.interfaces.aws_logs.ILogGroupRef
 - *Default:* `/aws/lambda/${this.functionName}` - default log group created by Lambda
 
 The log group the function sends logs to.
@@ -1028,7 +1067,8 @@ public readonly snapStart: SnapStartConf;
 
 Enable SnapStart for Lambda Function.
 
-SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime
+SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime,
+as well as container image (OCI) deployments.
 
 ---
 

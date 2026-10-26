@@ -65,11 +65,7 @@ type BaseFunction = {
 type OpenNextQueue = "direct" | "dummy" | "sqs" | "sqs-lite"
 
 type OpenNextIncrementalCache =
-  | "dummy"
-  | "fs-dev"
-  | "multi-tier-ddb-s3"
-  | "s3"
-  | "s3-lite"
+  "dummy" | "fs-dev" | "multi-tier-ddb-s3" | "s3" | "s3-lite"
 
 type OpenNextTagCache =
   | "dummy"
