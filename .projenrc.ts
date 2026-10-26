@@ -102,4 +102,44 @@ project.addFields({
   },
 })
 
+// Keep generated shell scripts safe and free of actionlint/ShellCheck findings.
+const buildWorkflow = project.github?.tryFindWorkflow("build")
+buildWorkflow?.file?.addOverride(
+  "jobs.build.steps.4.run",
+  [
+    "git add .",
+    'git diff --staged --patch --exit-code > repo.patch || echo "self_mutation_happened=true" >> "$GITHUB_OUTPUT"',
+  ].join("\n")
+)
+
+const releaseWorkflow = project.github?.tryFindWorkflow("release")
+releaseWorkflow?.file?.addOverride(
+  "jobs.release.steps.5.run",
+  [
+    'TAG="$(cat dist/releasetag.txt)"',
+    'if git ls-remote --exit-code origin "refs/tags/$TAG"; then',
+    '  echo "exists=true" >> "$GITHUB_OUTPUT"',
+    "else",
+    '  echo "exists=false" >> "$GITHUB_OUTPUT"',
+    "fi",
+    'cat "$GITHUB_OUTPUT"',
+  ].join("\n")
+)
+releaseWorkflow?.file?.addOverride(
+  "jobs.release.steps.6.run",
+  [
+    'echo "latest_commit=$(git ls-remote origin -h "$GITHUB_REF" | cut -f1)" >> "$GITHUB_OUTPUT"',
+    'cat "$GITHUB_OUTPUT"',
+  ].join("\n")
+)
+releaseWorkflow?.file?.addOverride(
+  "jobs.release_github.steps.3.run",
+  [
+    'tag=$(cat "$RELEASE_TAG_FILE")',
+    'if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" 2>/dev/null; then',
+    '  gh release create "$tag" -R "$GITHUB_REPOSITORY" -F "$CHANGELOG_FILE" -t "$tag" --target "$GITHUB_SHA"',
+    "fi",
+  ].join("\n")
+)
+
 project.synth()

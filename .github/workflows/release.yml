@@ -52,16 +52,20 @@ jobs:
       - name: Check if version has already been tagged
         id: check_tag_exists
         run: |-
-          TAG=$(cat dist/releasetag.txt)
-          ([ ! -z "$TAG" ] && git ls-remote -q --exit-code --tags origin $TAG && (echo "exists=true" >> $GITHUB_OUTPUT)) || (echo "exists=false" >> $GITHUB_OUTPUT)
-          cat $GITHUB_OUTPUT
+          TAG="$(cat dist/releasetag.txt)"
+          if git ls-remote --exit-code origin "refs/tags/$TAG"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
       - name: Check for new commits
         id: git_remote
         env:
           GITHUB_REF: ${{ github.ref }}
         run: |-
-          echo "latest_commit=$(git ls-remote origin -h "$GITHUB_REF" | cut -f1)" >> $GITHUB_OUTPUT
-          cat $GITHUB_OUTPUT
+          echo "latest_commit=$(git ls-remote origin -h "$GITHUB_REF" | cut -f1)" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
         shell: bash
       - name: Backup artifact permissions
         id: backup_artifact_permissions
@@ -108,9 +112,10 @@ jobs:
           CHANGELOG_FILE: dist/changelog.md
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |-
-          tag=$(cat "$RELEASE_TAG_FILE") &&
-          gh release view "$tag" -R "$GITHUB_REPOSITORY" 2>/dev/null ||
-          gh release create "$tag" -R "$GITHUB_REPOSITORY" -F "$CHANGELOG_FILE" -t "$tag" --target "$GITHUB_SHA"
+          tag=$(cat "$RELEASE_TAG_FILE")
+          if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" 2>/dev/null; then
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" -F "$CHANGELOG_FILE" -t "$tag" --target "$GITHUB_SHA"
+          fi
   release_npm:
     name: Publish to npm
     needs: release
