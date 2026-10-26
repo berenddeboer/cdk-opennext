@@ -103,6 +103,8 @@ project.addFields({
 })
 
 // Keep generated shell scripts safe and free of actionlint/ShellCheck findings.
+// Projen's build steps are lazily resolved, so use file overrides by index.
+// Re-verify these step indices against the generated YAML after Projen upgrades.
 const buildWorkflow = project.github?.tryFindWorkflow("build")
 buildWorkflow?.file?.addOverride(
   "jobs.build.steps.4.run",
