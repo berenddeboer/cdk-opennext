@@ -13,6 +13,9 @@ to ECS option has been removed.
 
 # Usage
 
+Requires `aws-cdk-lib` >=2.274.0 <3 and `constructs` >=10.8.1 <11.
+When upgrading from an earlier release, upgrade these peer dependencies as well.
+
 1. Install:
 
 ```sh
