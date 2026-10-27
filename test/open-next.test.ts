@@ -3,6 +3,7 @@ import * as os from "os"
 import * as path from "path"
 import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
+import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam"
 import { LogGroup } from "aws-cdk-lib/aws-logs"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Duration, Stack } from "aws-cdk-lib/core"
@@ -149,6 +150,103 @@ describe("NextjsSite", () => {
       expect(construct.distribution).toBeDefined()
       expect(construct.defaultServerFunction).toBeDefined()
     })
+  })
+
+  describe("shared execution role", () => {
+    it.each(["created", "imported", "none"])(
+      "should preserve permissions with role configuration: %s",
+      (roleConfiguration) => {
+        const output = {
+          ...mockOpenNextOutput,
+          origins: {
+            ...mockOpenNextOutput.origins,
+            additional: { ...mockOpenNextOutput.origins.default },
+          },
+          additionalProps: {
+            ...mockOpenNextOutput.additionalProps,
+            warmer: {
+              handler: "index.handler",
+              bundle: "server-function",
+            },
+          },
+        }
+        const fixture = createOpenNextFixture(output)
+        const role =
+          roleConfiguration === "created"
+            ? new Role(stack, "SharedExecutionRole", {
+                assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+              })
+            : roleConfiguration === "imported"
+              ? Role.fromRoleArn(
+                  stack,
+                  "SharedExecutionRole",
+                  "arn:aws:iam::123456789012:role/ExistingExecutionRole"
+                )
+              : undefined
+
+        new NextjsSite(stack, "TestOpenNext", {
+          openNextPath: fixture.openNextPath,
+          defaultFunctionProps: {
+            role,
+            functionName: roleConfiguration === "created" ? undefined : "CustomServer",
+          },
+        })
+
+        const template = Template.fromStack(stack)
+        const functions = template.findResources("AWS::Lambda::Function")
+        const functionIds = [
+          "defaultFunction",
+          "additionalFunction",
+          "imageOptimizerFunction",
+          "RevalidationInsertFunction",
+          "RevalidationFunction",
+          "RevalidationProviderframeworkonEvent",
+          "WarmerFunction",
+          "PrewarmerFunction",
+          "PrewarmerProviderframeworkonEvent",
+        ]
+        const roles = functionIds.map((id) => {
+          const matches = Object.entries(functions).filter(([logicalId]) =>
+            logicalId.startsWith(`TestOpenNext${id}`)
+          )
+          expect(matches).toHaveLength(1)
+          const functionRole = matches[0][1].Properties.Role
+          if (role) {
+            expect(functionRole).toEqual(stack.resolve(role.roleArn))
+            if (!id.includes("framework")) {
+              expect(matches[0][1].Properties.FunctionName).toEqual(expect.any(String))
+              expect(matches[0][1].Properties.FunctionName.length).toBeLessThanOrEqual(64)
+            }
+          }
+          return JSON.stringify(functionRole)
+        })
+        expect(new Set(roles).size).toBe(role ? 1 : functionIds.length)
+        if (roleConfiguration !== "created") {
+          template.hasResourceProperties("AWS::Lambda::Function", {
+            FunctionName: "CustomServer",
+            Description: Match.absent(),
+          })
+        }
+
+        if (role) {
+          const policies = template.findResources("AWS::IAM::Policy", {
+            Properties: {
+              Roles: [stack.resolve(role.roleName)],
+            },
+          })
+          expect(Object.keys(policies)).toHaveLength(1)
+          const policy = JSON.stringify(Object.values(policies)[0])
+          for (const action of [
+            "s3:GetObject*",
+            "dynamodb:PutItem",
+            "sqs:SendMessage",
+            "lambda:InvokeFunction",
+          ]) {
+            expect(policy).toContain(action)
+          }
+        }
+      }
+    )
   })
 
   describe("infrastructure resources", () => {

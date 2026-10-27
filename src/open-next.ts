@@ -32,6 +32,8 @@ import {
   Code,
   Function as CdkFunction,
   type FunctionOptions,
+  type FunctionProps,
+  type IFunction,
   type FunctionUrl,
   FunctionUrlAuthType,
   InvokeMode,
@@ -48,9 +50,11 @@ import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
 import { Queue } from "aws-cdk-lib/aws-sqs"
 import {
   Annotations,
+  ArnFormat,
   CustomResource,
   Duration,
   Fn,
+  Names,
   RemovalPolicy,
   Stack,
 } from "aws-cdk-lib/core"
@@ -196,8 +200,10 @@ export interface NextjsSiteProps {
   readonly openNextPath?: string | undefined
 
   /**
-   * Default props to apply to all Lambda functions created by this construct.
-   * These can be overridden by specific function configurations.
+   * Props for the default server Lambda function. The role, when supplied, is
+   * also reused by all other site Lambda functions and custom-resource providers.
+   * Required permissions are granted to this shared role. CDK-internal S3
+   * deployment and bucket auto-delete helpers do not use this role.
    */
   readonly defaultFunctionProps?: DefaultFunctionProps
 
@@ -313,6 +319,7 @@ export class NextjsSite extends Construct {
   private _customDomainName?: string
   private warmerFunction?: CdkFunction
   private props: NextjsSiteProps
+  private readonly functionNames = new Map<CdkFunction, string>()
 
   public get defaultServerFunction(): CdkFunction {
     return this._defaultServerFunction
@@ -467,7 +474,8 @@ export class NextjsSite extends Construct {
       return table
     }
 
-    const insertFn = new CdkFunction(this, "RevalidationInsertFunction", {
+    const insertFn = this.createSiteFunction("RevalidationInsertFunction", {
+      role: this.props.defaultFunctionProps?.role,
       description: "Next.js revalidation data insert",
       handler: initFn.handler,
       code: Code.fromAsset(path.join(this.openNextPath, "..", initFn.bundle)),
@@ -489,9 +497,11 @@ export class NextjsSite extends Construct {
     })
 
     const provider = new Provider(this, "RevalidationProvider", {
-      onEventHandler: insertFn,
+      frameworkOnEventRole: this.props.defaultFunctionProps?.role,
+      onEventHandler: this.invocationTarget(insertFn),
       logGroup: providerLogGroup,
     })
+    provider.node.addDependency(insertFn)
 
     new CustomResource(this, "RevalidationResource", {
       serviceToken: provider.serviceToken,
@@ -556,7 +566,8 @@ export class NextjsSite extends Construct {
       fifo: true,
       receiveMessageWaitTime: Duration.seconds(20),
     })
-    const consumer = new CdkFunction(this, "RevalidationFunction", {
+    const consumer = this.createSiteFunction("RevalidationFunction", {
+      role: this.props.defaultFunctionProps?.role,
       description: "Next.js revalidator",
       handler: revalidationFn.handler,
       code: Code.fromAsset(path.join(this.openNextPath, "..", revalidationFn.bundle)),
@@ -599,7 +610,8 @@ export class NextjsSite extends Construct {
     ]
 
     // Create warmer Lambda
-    this.warmerFunction = new CdkFunction(this, "WarmerFunction", {
+    this.warmerFunction = this.createSiteFunction("WarmerFunction", {
+      role: this.props.defaultFunctionProps?.role,
       description: "Next.js warmer",
       handler: warmerHandler,
       code: Code.fromAsset(warmerBundle),
@@ -615,7 +627,7 @@ export class NextjsSite extends Construct {
     })
 
     // Grant invoke permissions
-    this._defaultServerFunction.grantInvoke(this.warmerFunction)
+    this.invocationTarget(this._defaultServerFunction).grantInvoke(this.warmerFunction)
     this._defaultServerFunction.addEnvironment("WARMER_ENABLED", "true")
 
     // Create EventBridge rule
@@ -628,7 +640,8 @@ export class NextjsSite extends Construct {
 
     // Create pre-warmer if enabled (default: true)
     if (this.props.prewarmOnDeploy !== false) {
-      const prewarmerFn = new CdkFunction(this, "PrewarmerFunction", {
+      const prewarmerFn = this.createSiteFunction("PrewarmerFunction", {
+        role: this.props.defaultFunctionProps?.role,
         description: "Next.js pre-warmer",
         handler: "index.handler",
         code: Code.fromInline(`
@@ -662,12 +675,14 @@ export class NextjsSite extends Construct {
         logGroup: this.props.warmerLogGroup,
       })
 
-      this.warmerFunction.grantInvoke(prewarmerFn)
+      this.invocationTarget(this.warmerFunction).grantInvoke(prewarmerFn)
 
       const provider = new Provider(this, "PrewarmerProvider", {
-        onEventHandler: prewarmerFn,
+        frameworkOnEventRole: this.props.defaultFunctionProps?.role,
+        onEventHandler: this.invocationTarget(prewarmerFn),
         logGroup: this.props.warmerLogGroup,
       })
+      provider.node.addDependency(prewarmerFn)
 
       // Create a deterministic version hash based on warmer configuration
       // This ensures pre-warming only triggers when config actually changes
@@ -690,6 +705,51 @@ export class NextjsSite extends Construct {
         },
       })
     }
+  }
+
+  private createSiteFunction(id: string, props: FunctionProps) {
+    // Explicit names let shared-role invocation policies avoid references to
+    // functions that depend on the same role policy (a CloudFormation cycle).
+    const prefix = Names.uniqueResourceName(this, { maxLength: 32 })
+    const suffix = createHash("sha256")
+      .update(`${Stack.of(this).stackName}/${this.node.path}/${id}`)
+      .digest("hex")
+      .slice(0, 8)
+    const functionName =
+      props.functionName ??
+      (this.props.defaultFunctionProps?.role
+        ? `${prefix}-${id.slice(0, 22)}${suffix}`
+        : undefined)
+    const fn = new CdkFunction(this, id, {
+      ...props,
+      functionName,
+    })
+    if (functionName) {
+      this.functionNames.set(fn, functionName)
+    }
+    return fn
+  }
+
+  private invocationTarget(fn: CdkFunction): IFunction {
+    if (!this.props.defaultFunctionProps?.role) {
+      return fn
+    }
+    const target = CdkFunction.fromFunctionAttributes(
+      this,
+      `${fn.node.id}InvocationTarget`,
+      {
+        sameEnvironment: true,
+        functionArn: Stack.of(this).formatArn({
+          service: "lambda",
+          resource: "function",
+          resourceName: this.functionNames.get(fn),
+          arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+        }),
+      }
+    )
+    // Resource-based grants on this reference must wait for the actual function.
+    target.node.addDependency(fn)
+    return target
   }
 
   private collectServerOrigins() {
@@ -792,8 +852,9 @@ export class NextjsSite extends Construct {
     fnProps?: DefaultFunctionProps
   ) {
     const environment = this.getServerEnvironment(origin)
-    const fn = new CdkFunction(this, `${key}Function`, {
+    const fn = this.createSiteFunction(`${key}Function`, {
       ...fnProps,
+      role: fnProps?.role ?? this.props.defaultFunctionProps?.role,
       runtime: fnProps?.runtime ?? Runtime.NODEJS_24_X,
       architecture: fnProps?.architecture ?? Architecture.ARM_64,
       memorySize: fnProps?.memorySize ?? 1024,
@@ -831,7 +892,8 @@ export class NextjsSite extends Construct {
    */
   private createImageOptimizerOrigin(origin: OpenNextFunctionOrigin) {
     const environment = this.getImageOptimizerEnvironment()
-    const fn = new CdkFunction(this, "imageOptimizerFunction", {
+    const fn = this.createSiteFunction("imageOptimizerFunction", {
+      role: this.props.defaultFunctionProps?.role,
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       memorySize: 1024,

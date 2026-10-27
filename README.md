@@ -55,6 +55,30 @@ const site = new NextjsSite(this, "NextjsSite", {
 })
 ```
 
+### Shared execution role
+
+Set `defaultFunctionProps.role` to reuse an existing Lambda execution role across
+the default server, additional server origins, image optimizer, revalidation,
+initialization, warmer, pre-warmer, and both custom-resource provider functions:
+
+```typescript
+const site = new NextjsSite(this, "NextjsSite", {
+  defaultFunctionProps: {
+    role: executionRole,
+  },
+})
+```
+
+The role must trust `lambda.amazonaws.com`. The construct grants the required
+permissions to the shared role, so all functions using it share the combined
+permissions. If the role is imported as immutable, provision these permissions
+separately. Without a supplied role, functions continue creating their own roles.
+CDK-internal S3 deployment and bucket auto-delete helpers still manage their own
+roles. Other `defaultFunctionProps` settings apply only to the default server.
+With a shared role, site functions receive deterministic names to avoid
+CloudFormation dependency cycles. This can replace existing unnamed functions
+when upgrading; an explicit `defaultFunctionProps.functionName` is preserved.
+
 ## Lambda Warming
 
 By default, Lambda warming is enabled to prevent cold starts. The construct keeps 1 server instance warm with 5-minute intervals.
