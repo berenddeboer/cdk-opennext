@@ -1,6 +1,6 @@
 # About
 
-CDK construct to deploy a NextJs 15 or higher application using the
+CDK construct to deploy a Next.js 16 or higher application using the
 [OpenNext AWS adapter](https://github.com/opennextjs/opennextjs-aws).
 
 It works best if [deployed in an Nx
@@ -13,8 +13,12 @@ to ECS option has been removed.
 
 # Usage
 
-Requires `aws-cdk-lib` >=2.274.0 <3 and `constructs` >=10.8.1 <11.
+Requires Next.js 16 or higher, `aws-cdk-lib` >=2.274.0 <3, and
+`constructs` >=10.8.1 <11. Next.js 15 and earlier are no longer supported.
 When upgrading from an earlier release, upgrade these peer dependencies as well.
+
+Next.js is a dependency of your application, rather than this CDK construct.
+Upgrade your application's `next` dependency to version 16 or higher before deploying.
 
 1. Install:
 
