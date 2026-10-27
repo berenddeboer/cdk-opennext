@@ -155,14 +155,17 @@ describe("NextjsSite", () => {
   describe("shared execution role", () => {
     it.each(
       ["created", "imported", "none"].flatMap((roleConfiguration) =>
-        [undefined, "CustomServer"].map((functionName) => ({
-          roleConfiguration,
-          functionName,
-        }))
+        [undefined, "CustomServer"].flatMap((functionName) =>
+          [true, false].map((prewarmOnDeploy) => ({
+            roleConfiguration,
+            functionName,
+            prewarmOnDeploy,
+          }))
+        )
       )
     )(
-      "should preserve permissions with role $roleConfiguration and name $functionName",
-      ({ roleConfiguration, functionName }) => {
+      "should preserve role $roleConfiguration, name $functionName, prewarm $prewarmOnDeploy",
+      ({ roleConfiguration, functionName, prewarmOnDeploy }) => {
         const output = {
           ...mockOpenNextOutput,
           origins: {
@@ -193,6 +196,7 @@ describe("NextjsSite", () => {
 
         new NextjsSite(stack, "TestOpenNext", {
           openNextPath: fixture.openNextPath,
+          prewarmOnDeploy,
           defaultFunctionProps: {
             role,
             functionName,
@@ -209,9 +213,15 @@ describe("NextjsSite", () => {
           "RevalidationFunction",
           "RevalidationProviderframeworkonEvent",
           "WarmerFunction",
-          "PrewarmerFunction",
-          "PrewarmerProviderframeworkonEvent",
+          ...(prewarmOnDeploy
+            ? ["PrewarmerFunction", "PrewarmerProviderframeworkonEvent"]
+            : []),
         ]
+        if (!prewarmOnDeploy) {
+          expect(
+            Object.keys(functions).filter((id) => id.startsWith("TestOpenNextPrewarmer"))
+          ).toHaveLength(0)
+        }
         const roles = functionIds.map((id) => {
           const matches = Object.entries(functions).filter(([logicalId]) =>
             logicalId.startsWith(`TestOpenNext${id}`)
@@ -233,10 +243,11 @@ describe("NextjsSite", () => {
         })
         expect(new Set(roles).size).toBe(role ? 1 : functionIds.length)
         if (functionName) {
-          template.hasResourceProperties("AWS::Lambda::Function", {
-            FunctionName: "CustomServer",
-            Description: Match.absent(),
-          })
+          expect(
+            Object.values(functions).filter(
+              (fn) => fn.Properties.FunctionName === functionName
+            )
+          ).toHaveLength(1)
         }
 
         if (role) {
@@ -287,6 +298,30 @@ describe("NextjsSite", () => {
       const names = siteFunctions
         .map(([, fn]) => fn.Properties.FunctionName)
         .filter((name) => name !== undefined)
+      expect(names).toHaveLength(8)
+      expect(new Set(names).size).toBe(names.length)
+    })
+
+    it("should use distinct names for identical site paths in different stacks", () => {
+      const names = ["FirstStack", "SecondStack"].flatMap((stackName) => {
+        const siteStack = new Stack(undefined, stackName, { stackName })
+        const role = Role.fromRoleArn(
+          siteStack,
+          "SharedExecutionRole",
+          "arn:aws:iam::123456789012:role/ExistingExecutionRole"
+        )
+        new NextjsSite(siteStack, "SameSite", {
+          openNextPath,
+          defaultFunctionProps: { role },
+          warm: false,
+        })
+        const functions = Template.fromStack(siteStack).findResources(
+          "AWS::Lambda::Function"
+        )
+        return Object.values(functions)
+          .map((fn) => fn.Properties.FunctionName)
+          .filter((name) => name !== undefined)
+      })
       expect(names).toHaveLength(8)
       expect(new Set(names).size).toBe(names.length)
     })
