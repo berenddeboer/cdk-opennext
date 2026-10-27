@@ -50,6 +50,28 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
 })
 
+// The default build tests the pinned minimum. Also exercise CDK's evolving
+// singleton/handler internals against the latest published compatible major.
+const cdkCompatibility = project.github?.addWorkflow("cdk-compatibility")
+cdkCompatibility?.on({ pullRequest: {}, workflowDispatch: {} })
+cdkCompatibility?.addJob("latest-cdk", {
+  runsOn: ["ubuntu-latest"],
+  permissions: { contents: github.workflows.JobPermission.READ },
+  steps: [
+    { uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" },
+    { uses: "actions/setup-node@v7.0.0", with: { "node-version": "24.x" } },
+    { run: "npm ci" },
+    {
+      name: "Install latest CDK 2.x without changing the pinned minimum",
+      run: "npm install --no-save --package-lock=false aws-cdk-lib@2",
+    },
+    {
+      name: "Verify migration identities, singleton roles and deletion safeguards",
+      run: "npx jest --runInBand",
+    },
+  ],
+})
+
 const dependabot = project.github?.addDependabot()
 if (dependabot) {
   dependabot.config.updates = [

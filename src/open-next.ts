@@ -62,6 +62,7 @@ import {
 import { Provider } from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 import { SuppliedRoleBucketAutoDeleteProvider } from "./bucket-auto-delete-provider"
+import { grantLogging, sameRole } from "./role-helpers"
 
 type BaseFunction = {
   handler: string
@@ -404,6 +405,12 @@ export class NextjsSite extends Construct {
       removalPolicy: RemovalPolicy.DESTROY,
       enforceSSL: true,
     })
+    const autoDeleteProvider = Stack.of(this).node.tryFindChild(
+      "Custom::S3AutoDeleteObjectsCustomResourceProvider"
+    )
+    if (autoDeleteProvider instanceof SuppliedRoleBucketAutoDeleteProvider) {
+      autoDeleteProvider.assertBound()
+    }
     this.table = this.needsRevalidationTable()
       ? this.createRevalidationTable()
       : undefined
@@ -543,7 +550,10 @@ export class NextjsSite extends Construct {
                     const asset = new Asset(scope, "Asset1", {
                       path: path.join(this.openNextPath, "..", copy.from),
                     })
-                    asset.bucket.grantRead(context!.handlerRole, asset.s3ObjectKey)
+                    if (!context) {
+                      throw new Error("BucketDeployment source context is required")
+                    }
+                    asset.bucket.grantRead(context.handlerRole, asset.s3ObjectKey)
                     return { bucket: asset.bucket, zipObjectKey: asset.s3ObjectKey }
                   },
                 }
@@ -556,8 +566,7 @@ export class NextjsSite extends Construct {
       )
       if (
         defaultFunctionProps?.role &&
-        JSON.stringify(Stack.of(this).resolve(deployment.handlerRole.roleArn)) !==
-          JSON.stringify(Stack.of(this).resolve(defaultFunctionProps.role.roleArn))
+        !sameRole(this, deployment.handlerRole, defaultFunctionProps.role)
       ) {
         throw new Error("Incompatible BucketDeployment singleton execution role")
       }
@@ -746,17 +755,16 @@ export class NextjsSite extends Construct {
     const logRetentionRole =
       props.logRetentionRole ?? this.props.defaultFunctionProps?.role
     if (props.logRetention && logRetentionRole) {
-      SuppliedRoleBucketAutoDeleteProvider.grantLogging(logRetentionRole)
       const existing = Stack.of(this).node.tryFindChild(
         "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a"
       ) as (Construct & { readonly role?: IRole }) | undefined
       if (
         existing &&
-        JSON.stringify(Stack.of(this).resolve(existing.role?.roleArn)) !==
-          JSON.stringify(Stack.of(this).resolve(logRetentionRole.roleArn))
+        (!existing.role || !sameRole(this, existing.role, logRetentionRole))
       ) {
         throw new Error("Incompatible LogRetention singleton execution role")
       }
+      grantLogging(logRetentionRole)
     }
     // Explicit names let shared-role invocation policies avoid references to
     // functions that depend on the same role policy (a CloudFormation cycle).

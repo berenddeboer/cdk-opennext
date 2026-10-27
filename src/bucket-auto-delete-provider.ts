@@ -1,57 +1,33 @@
-import { readFileSync } from "fs"
+import { existsSync, readFileSync } from "fs"
 import * as path from "path"
-import { IRole, PolicyStatement, Role } from "aws-cdk-lib/aws-iam"
+import { IRole } from "aws-cdk-lib/aws-iam"
 import { Code } from "aws-cdk-lib/aws-lambda"
 import { CfnResource, determineLatestNodeRuntimeName, Stack } from "aws-cdk-lib/core"
-import { Construct, Dependable } from "constructs"
+import { Construct } from "constructs"
+import { grantLogging, sameRole } from "./role-helpers"
 
 /**
  * Adapter for CDK's stack singleton, which has no public execution-role input.
  * Keep the singleton and Handler paths identical to CDK's provider: changing
  * the service token can send a Delete to the old provider and empty the bucket.
  * The CDK handler (including its deletion safeguards) is deliberately reused.
- * Template compatibility is tested against the minimum supported CDK version.
+ * Template compatibility is tested against the minimum and latest CDK 2.x.
  *
  * @internal
  */
 export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
-  public static grantLogging(role: IRole) {
-    // ImmutableRole can report statementAdded=true while returning an empty
-    // DependencyGroup and discarding the statement. Check the attachment too.
-    // Created Roles fill their dependency group later, during policy splitting.
-    const grant = role.addToPrincipalPolicy(
-      new PolicyStatement({
-        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
-        resources: ["*"],
-      })
-    )
-    if (
-      !grant.statementAdded ||
-      !grant.policyDependable ||
-      (!Role.isRole(role) &&
-        Dependable.of(grant.policyDependable).dependencyRoots.length === 0)
-    ) {
-      throw new Error(
-        "Supplied execution roles must allow policy attachments (mutable role)"
-      )
-    }
-    return grant
-  }
-
   public static prepare(scope: Construct, role?: IRole): void {
     const stack = Stack.of(scope)
     const id = "Custom::S3AutoDeleteObjectsCustomResourceProvider"
     const existing = stack.node.tryFindChild(id)
-    if (role) {
-      this.grantLogging(role)
-    }
     if (existing) {
       if (
         role &&
         existing instanceof SuppliedRoleBucketAutoDeleteProvider &&
-        JSON.stringify(stack.resolve(existing.roleArn)) ===
-          JSON.stringify(stack.resolve(role.roleArn))
+        sameRole(stack, existing.executionRole, role)
       ) {
+        grantLogging(role)
+        existing.bound = false
         return
       }
       if (!role && !(existing instanceof SuppliedRoleBucketAutoDeleteProvider)) return
@@ -64,15 +40,37 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
   }
 
   public readonly roleArn: string
-  public readonly serviceToken: string
+  public readonly executionRole: IRole
+  private readonly token: string
+  private bound = false
+
+  public get serviceToken(): string {
+    this.bound = true
+    return this.token
+  }
 
   constructor(scope: Construct, id: string, role: IRole) {
     super(scope, id)
     this.roleArn = role.roleArn
-    const directory = path.join(
-      path.dirname(require.resolve("aws-cdk-lib/package.json")),
-      "custom-resource-handlers/dist/aws-s3/auto-delete-objects-handler"
-    )
+    this.executionRole = role
+    let directory: string
+    try {
+      directory = path.join(
+        path.dirname(require.resolve("aws-cdk-lib/package.json")),
+        "custom-resource-handlers/dist/aws-s3/auto-delete-objects-handler"
+      )
+    } catch {
+      throw new Error(
+        "Cannot locate aws-cdk-lib's auto-delete handler. Keep aws-cdk-lib " +
+          "external when bundling cdk-opennext and include its handler assets."
+      )
+    }
+    if (!existsSync(path.join(directory, "index.js"))) {
+      throw new Error(
+        `Unsupported CDK auto-delete handler layout: missing ${directory}/index.js. ` +
+          "Use a tested CDK version with its bundled handler assets installed."
+      )
+    }
     const code = Code.fromAsset(directory).bind(this)
     const handler = new CfnResource(this, "Handler", {
       type: "AWS::Lambda::Function",
@@ -90,10 +88,19 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
         MemorySize: 128,
       },
     })
-    this.serviceToken = handler.getAtt("Arn").toString()
+    this.token = handler.getAtt("Arn").toString()
     // The bucket policy supplies the S3 permissions. Keep them there, just as
     // CDK does, to avoid a provider-policy/bucket-policy dependency cycle.
-    const grant = SuppliedRoleBucketAutoDeleteProvider.grantLogging(role)
+    const grant = grantLogging(role)
     if (grant.policyDependable) handler.node.addDependency(grant.policyDependable)
+  }
+
+  public assertBound(): void {
+    if (!this.bound) {
+      throw new Error(
+        "Unsupported CDK auto-delete singleton layout: the bucket did not reuse " +
+          "the supplied-role provider. Refusing to synthesize a changed service token."
+      )
+    }
   }
 }

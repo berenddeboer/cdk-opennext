@@ -4,10 +4,12 @@ import * as path from "path"
 import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
 import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam"
-import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs"
+import { LogGroup, LogRetention, RetentionDays } from "aws-cdk-lib/aws-logs"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Bucket } from "aws-cdk-lib/aws-s3"
-import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib/core"
+import { Asset } from "aws-cdk-lib/aws-s3-assets"
+import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
+import { Duration, Names, RemovalPolicy, Stack } from "aws-cdk-lib/core"
 import { NextjsSite } from "../src/open-next"
 
 describe("NextjsSite", () => {
@@ -189,16 +191,40 @@ describe("NextjsSite", () => {
           openNextPath: fixture.openNextPath,
           defaultFunctionProps: { role },
         })
-        return Template.fromStack(migrationStack).toJSON().Resources
+        return {
+          resources: Template.fromStack(migrationStack).toJSON().Resources,
+          // Assets are manifest entries, not standalone CloudFormation resources.
+          // Check their construct-derived identity as well as the CR source keys.
+          assets: migrationStack.node
+            .findAll()
+            .filter(
+              (node) =>
+                node instanceof Asset &&
+                node.node.path.includes("OpenNextBucketDeployment")
+            )
+            .map((node) => ({ path: node.node.path, id: Names.uniqueId(node) })),
+        }
       }
-      const before = synth(false)
-      const after = synth(true)
+      const generated = synth(false)
+      const supplied = synth(true)
+      expect(supplied.assets).toEqual(generated.assets)
+      expect(supplied.assets).toHaveLength(2)
+      const before = generated.resources
+      const after = supplied.resources
       for (const id of baseline.stateful) {
         expect(after[id]).toEqual(before[id])
       }
       for (const [id, token] of Object.entries(baseline.tokens)) {
         expect(before[id].Properties.ServiceToken).toEqual(token)
         expect(after[id].Properties.ServiceToken).toEqual(token)
+        if (before[id].Type === "Custom::CDKBucketDeployment") {
+          expect(after[id].Properties.SourceBucketNames).toEqual(
+            before[id].Properties.SourceBucketNames
+          )
+          expect(after[id].Properties.SourceObjectKeys).toEqual(
+            before[id].Properties.SourceObjectKeys
+          )
+        }
       }
       for (const id of baseline.providerFunctions) {
         expect(after[id].Properties.FunctionName).toEqual(
@@ -587,6 +613,40 @@ describe("NextjsSite", () => {
         Role: role.roleArn,
         Code: { ZipFile: Match.stringLikeRegexp("aws-cdk:auto-delete-objects") },
       })
+    })
+
+    it("rejects a pre-existing incompatible log-retention singleton", () => {
+      new LogRetention(stack, "OtherRetention", {
+        logGroupName: "/other/function",
+        retention: RetentionDays.ONE_WEEK,
+      })
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      expect(
+        () =>
+          new NextjsSite(stack, "Site", {
+            openNextPath,
+            defaultFunctionProps: { role, logRetention: RetentionDays.ONE_WEEK },
+          })
+      ).toThrow("Incompatible LogRetention singleton execution role")
+    })
+
+    it("rejects a pre-existing incompatible bucket-deployment singleton", () => {
+      new BucketDeployment(stack, "OtherDeployment", {
+        destinationBucket: new Bucket(stack, "OtherDestination"),
+        sources: [Source.asset(path.join(openNextPath, "../assets"))],
+      })
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      expect(
+        () =>
+          new NextjsSite(stack, "Site", {
+            openNextPath,
+            defaultFunctionProps: { role },
+          })
+      ).toThrow("Incompatible BucketDeployment singleton execution role")
     })
   })
 

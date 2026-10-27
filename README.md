@@ -77,6 +77,9 @@ permissions. A usable policy attachment path is required; immutable imported
 roles (including `withoutPolicyUpdates()`) are rejected rather than silently
 discarding grants. The deployment principal must be able to attach the policies
 and pass the role. Without a supplied role, existing generated-role behavior remains.
+Logging grants include `logs:CreateLogGroup`, `logs:CreateLogStream`, and
+`logs:PutLogEvents` on `*`, matching CDK's helper behavior. A shared role gives
+every function these logging permissions as well as the combined site grants.
 In particular, the image optimizer, warmer, pre-warmer, and provider functions
 inherit the server's S3, DynamoDB, and SQS permissions through this shared role.
 Source-asset reads are scoped to the deployed archives; auto-delete permissions
@@ -103,6 +106,10 @@ provider; those buckets also use the supplied role and retain their own bucket
 policy grants. This integration does not reconfigure previously created helpers
 or helpers in other stacks. CDK's bundled auto-delete handler and singleton paths
 are an encapsulated compatibility integration, covered by template/handler tests.
+CI tests the pinned minimum and the latest published CDK 2.x. Missing bundled
+handler assets or failure to reuse the expected singleton are explicit errors,
+not permission to synthesize a different deletion provider. Keep `aws-cdk-lib`
+external when bundling infrastructure code so its handler assets remain available.
 
 For a stable role used by multiple stacks, import it separately into each stack
 with **distinct policy ownership names**:

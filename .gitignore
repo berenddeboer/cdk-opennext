@@ -51,5 +51,6 @@ junit.xml
 !/projenrc/tsconfig.json
 .jsii
 !/API.md
+!/.github/workflows/cdk-compatibility.yml
 !/.github/dependabot.yml
 !/.projenrc.ts
