@@ -241,9 +241,16 @@ describe("NextjsSite", () => {
         }
         for (const id of baseline.providerFunctions) {
           for (const property of [
-            "FunctionName", "Code", "Handler", "Timeout", "MemorySize", "Runtime",
+            "FunctionName",
+            "Code",
+            "Handler",
+            "Timeout",
+            "MemorySize",
+            "Runtime",
           ]) {
-            expect(after[id].Properties[property]).toEqual(before[id].Properties[property])
+            expect(after[id].Properties[property]).toEqual(
+              before[id].Properties[property]
+            )
           }
         }
         const oldRoles = Object.keys(before).filter(
