@@ -33,9 +33,9 @@ import {
   Function as CdkFunction,
   type FunctionOptions,
   type FunctionProps,
-  type IFunction,
   type FunctionUrl,
   FunctionUrlAuthType,
+  type IFunction,
   InvokeMode,
   LoggingFormat,
   Runtime,
@@ -501,6 +501,7 @@ export class NextjsSite extends Construct {
       onEventHandler: this.invocationTarget(insertFn),
       logGroup: providerLogGroup,
     })
+    // The named invocation reference hides the dependency on the real handler.
     provider.node.addDependency(insertFn)
 
     new CustomResource(this, "RevalidationResource", {
@@ -682,6 +683,7 @@ export class NextjsSite extends Construct {
         onEventHandler: this.invocationTarget(prewarmerFn),
         logGroup: this.props.warmerLogGroup,
       })
+      // The named invocation reference hides the dependency on the real handler.
       provider.node.addDependency(prewarmerFn)
 
       // Create a deterministic version hash based on warmer configuration
@@ -711,6 +713,8 @@ export class NextjsSite extends Construct {
     // Explicit names let shared-role invocation policies avoid references to
     // functions that depend on the same role policy (a CloudFormation cycle).
     const prefix = Names.uniqueResourceName(this, { maxLength: 32 })
+    // 32 + 1 separator + 22 ID characters + 8 hash characters = 63 (limit 64).
+    // Hash the full ID and stack/site path to keep truncated names distinct.
     const suffix = createHash("sha256")
       .update(`${Stack.of(this).stackName}/${this.node.path}/${id}`)
       .digest("hex")
@@ -734,6 +738,10 @@ export class NextjsSite extends Construct {
     if (!this.props.defaultFunctionProps?.role) {
       return fn
     }
+    const functionName = this.functionNames.get(fn)
+    if (!functionName) {
+      throw new Error(`Missing explicit name for invocation target ${fn.node.path}`)
+    }
     const target = CdkFunction.fromFunctionAttributes(
       this,
       `${fn.node.id}InvocationTarget`,
@@ -742,7 +750,7 @@ export class NextjsSite extends Construct {
         functionArn: Stack.of(this).formatArn({
           service: "lambda",
           resource: "function",
-          resourceName: this.functionNames.get(fn),
+          resourceName: functionName,
           arnFormat: ArnFormat.COLON_RESOURCE_NAME,
         }),
       }

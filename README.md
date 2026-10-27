@@ -73,6 +73,8 @@ The role must trust `lambda.amazonaws.com`. The construct grants the required
 permissions to the shared role, so all functions using it share the combined
 permissions. If the role is imported as immutable, provision these permissions
 separately. Without a supplied role, functions continue creating their own roles.
+In particular, the image optimizer, warmer, pre-warmer, and provider functions
+inherit the server's S3, DynamoDB, and SQS permissions through this shared role.
 CDK-internal S3 deployment and bucket auto-delete helpers still manage their own
 roles. Other `defaultFunctionProps` settings apply only to the default server.
 With a shared role, site functions receive deterministic names to avoid

@@ -153,9 +153,16 @@ describe("NextjsSite", () => {
   })
 
   describe("shared execution role", () => {
-    it.each(["created", "imported", "none"])(
-      "should preserve permissions with role configuration: %s",
-      (roleConfiguration) => {
+    it.each(
+      ["created", "imported", "none"].flatMap((roleConfiguration) =>
+        [undefined, "CustomServer"].map((functionName) => ({
+          roleConfiguration,
+          functionName,
+        }))
+      )
+    )(
+      "should preserve permissions with role $roleConfiguration and name $functionName",
+      ({ roleConfiguration, functionName }) => {
         const output = {
           ...mockOpenNextOutput,
           origins: {
@@ -188,7 +195,7 @@ describe("NextjsSite", () => {
           openNextPath: fixture.openNextPath,
           defaultFunctionProps: {
             role,
-            functionName: roleConfiguration === "created" ? undefined : "CustomServer",
+            functionName,
           },
         })
 
@@ -217,11 +224,15 @@ describe("NextjsSite", () => {
               expect(matches[0][1].Properties.FunctionName).toEqual(expect.any(String))
               expect(matches[0][1].Properties.FunctionName.length).toBeLessThanOrEqual(64)
             }
+          } else {
+            expect(matches[0][1].Properties.FunctionName).toBe(
+              id === "defaultFunction" ? functionName : undefined
+            )
           }
           return JSON.stringify(functionRole)
         })
         expect(new Set(roles).size).toBe(role ? 1 : functionIds.length)
-        if (roleConfiguration !== "created") {
+        if (functionName) {
           template.hasResourceProperties("AWS::Lambda::Function", {
             FunctionName: "CustomServer",
             Description: Match.absent(),
@@ -236,6 +247,11 @@ describe("NextjsSite", () => {
           })
           expect(Object.keys(policies)).toHaveLength(1)
           const policy = JSON.stringify(Object.values(policies)[0])
+          // A function depends on its role's policy. References back to any
+          // function would therefore create a CloudFormation dependency cycle.
+          for (const logicalId of Object.keys(functions)) {
+            expect(policy).not.toContain(`"${logicalId}"`)
+          }
           for (const action of [
             "s3:GetObject*",
             "dynamodb:PutItem",
@@ -247,6 +263,33 @@ describe("NextjsSite", () => {
         }
       }
     )
+
+    it("should use distinct function names for sites sharing a role in one stack", () => {
+      const role = new Role(stack, "SharedExecutionRole", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      for (const id of ["FirstSite", "SecondSite"]) {
+        new NextjsSite(stack, id, {
+          openNextPath,
+          defaultFunctionProps: { role },
+          warm: false,
+        })
+      }
+
+      const functions = Template.fromStack(stack).findResources("AWS::Lambda::Function")
+      const siteFunctions = Object.entries(functions).filter(([logicalId]) =>
+        /^(FirstSite|SecondSite)/.test(logicalId)
+      )
+      expect(siteFunctions).toHaveLength(10)
+      for (const [, fn] of siteFunctions) {
+        expect(fn.Properties.Role).toEqual(stack.resolve(role.roleArn))
+      }
+      const names = siteFunctions
+        .map(([, fn]) => fn.Properties.FunctionName)
+        .filter((name) => name !== undefined)
+      expect(names).toHaveLength(8)
+      expect(new Set(names).size).toBe(names.length)
+    })
   })
 
   describe("infrastructure resources", () => {
