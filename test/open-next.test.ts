@@ -478,23 +478,29 @@ describe("NextjsSite", () => {
       expect(new Set(names).size).toBe(names.length)
     })
 
-    it("rejects immutable roles rather than silently dropping grants", () => {
-      const role = Role.fromRoleArn(
-        stack,
-        "Immutable",
-        "arn:aws:iam::123456789012:role/Existing",
-        {
-          mutable: false,
-        }
-      )
-      expect(
-        () =>
-          new NextjsSite(stack, "Site", {
-            openNextPath,
-            defaultFunctionProps: { role },
-          })
-      ).toThrow(/mutable/)
-    })
+    it.each(["import", "resource-grants", "withoutPolicyUpdates"])(
+      "rejects immutable roles rather than silently dropping grants: %s",
+      (mode) => {
+        const role =
+          mode === "withoutPolicyUpdates"
+            ? new Role(stack, "Role", {
+                assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+              }).withoutPolicyUpdates()
+            : Role.fromRoleArn(
+                stack,
+                "Immutable",
+                "arn:aws:iam::123456789012:role/Existing",
+                { mutable: false, addGrantsToResources: mode === "resource-grants" }
+              )
+        expect(
+          () =>
+            new NextjsSite(stack, "Site", {
+              openNextPath,
+              defaultFunctionProps: { role },
+            })
+        ).toThrow(/mutable/)
+      }
+    )
 
     it.each(["default-first", "supplied-first", "distinct"])(
       "rejects incompatible singleton roles: %s",

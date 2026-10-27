@@ -46,7 +46,6 @@ import { ILogGroup, LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs"
 import { AaaaRecord, ARecord, IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53"
 import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets"
 import { BlockPublicAccess, Bucket } from "aws-cdk-lib/aws-s3"
-import { Asset } from "aws-cdk-lib/aws-s3-assets"
 import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
 import { Queue } from "aws-cdk-lib/aws-sqs"
 import {
@@ -62,6 +61,7 @@ import {
 import { Provider } from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 import { SuppliedRoleBucketAutoDeleteProvider } from "./bucket-auto-delete-provider"
+import { scopedAssetSource } from "./deployment-source"
 import { grantLogging, sameRole } from "./role-helpers"
 
 type BaseFunction = {
@@ -406,6 +406,7 @@ export class NextjsSite extends Construct {
       enforceSSL: true,
     })
     const autoDeleteProvider = Stack.of(this).node.tryFindChild(
+      // CDK aws-s3 AutoDeleteObjectsProvider.getOrCreateProvider's stack child.
       "Custom::S3AutoDeleteObjectsCustomResourceProvider"
     )
     if (autoDeleteProvider instanceof SuppliedRoleBucketAutoDeleteProvider) {
@@ -545,18 +546,7 @@ export class NextjsSite extends Construct {
           role: defaultFunctionProps?.role,
           sources: [
             defaultFunctionProps?.role
-              ? {
-                  bind: (scope, context) => {
-                    const asset = new Asset(scope, "Asset1", {
-                      path: path.join(this.openNextPath, "..", copy.from),
-                    })
-                    if (!context) {
-                      throw new Error("BucketDeployment source context is required")
-                    }
-                    asset.bucket.grantRead(context.handlerRole, asset.s3ObjectKey)
-                    return { bucket: asset.bucket, zipObjectKey: asset.s3ObjectKey }
-                  },
-                }
+              ? scopedAssetSource(path.join(this.openNextPath, "..", copy.from))
               : Source.asset(path.join(this.openNextPath, "..", copy.from)),
           ],
           destinationBucket: this.bucket,
@@ -568,7 +558,10 @@ export class NextjsSite extends Construct {
         defaultFunctionProps?.role &&
         !sameRole(this, deployment.handlerRole, defaultFunctionProps.role)
       ) {
-        throw new Error("Incompatible BucketDeployment singleton execution role")
+        throw new Error(
+          "Incompatible BucketDeployment singleton execution role. Use the same role " +
+            "for all deployments sharing this stack singleton, or omit roles for all."
+        )
       }
     }
     const origins = {
@@ -756,13 +749,17 @@ export class NextjsSite extends Construct {
       props.logRetentionRole ?? this.props.defaultFunctionProps?.role
     if (props.logRetention && logRetentionRole) {
       const existing = Stack.of(this).node.tryFindChild(
+        // CDK aws-logs LogRetention.ensureSingletonLogRetentionFunction's ID.
         "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a"
       ) as (Construct & { readonly role?: IRole }) | undefined
       if (
         existing &&
         (!existing.role || !sameRole(this, existing.role, logRetentionRole))
       ) {
-        throw new Error("Incompatible LogRetention singleton execution role")
+        throw new Error(
+          "Incompatible LogRetention singleton execution role. Use the same " +
+            "logRetentionRole for all users of this stack singleton, or omit roles for all."
+        )
       }
       grantLogging(logRetentionRole)
     }

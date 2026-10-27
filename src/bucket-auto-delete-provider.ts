@@ -18,6 +18,7 @@ import { grantLogging, sameRole } from "./role-helpers"
 export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
   public static prepare(scope: Construct, role?: IRole): void {
     const stack = Stack.of(scope)
+    // CDK aws-s3 AutoDeleteObjectsProvider.getOrCreateProvider's stack child ID.
     const id = "Custom::S3AutoDeleteObjectsCustomResourceProvider"
     const existing = stack.node.tryFindChild(id)
     if (existing) {
@@ -44,11 +45,6 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
   private readonly token: string
   private bound = false
 
-  public get serviceToken(): string {
-    this.bound = true
-    return this.token
-  }
-
   constructor(scope: Construct, id: string, role: IRole) {
     super(scope, id)
     this.roleArn = role.roleArn
@@ -57,6 +53,7 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
     try {
       directory = path.join(
         path.dirname(require.resolve("aws-cdk-lib/package.json")),
+        // Bundled by CDK's generated AutoDeleteObjectsProvider implementation.
         "custom-resource-handlers/dist/aws-s3/auto-delete-objects-handler"
       )
     } catch {
@@ -72,6 +69,7 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
       )
     }
     const code = Code.fromAsset(directory).bind(this)
+    // CustomResourceProviderBase uses this child ID for its Lambda resource.
     const handler = new CfnResource(this, "Handler", {
       type: "AWS::Lambda::Function",
       properties: {
@@ -93,6 +91,13 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
     // CDK does, to avoid a provider-policy/bucket-policy dependency cycle.
     const grant = grantLogging(role)
     if (grant.policyDependable) handler.node.addDependency(grant.policyDependable)
+  }
+
+  public get serviceToken(): string {
+    // CDK's bucket consumes the singleton through this property (no bind API).
+    // Recording the read lets assertBound reject changed singleton lookup paths.
+    this.bound = true
+    return this.token
   }
 
   public assertBound(): void {

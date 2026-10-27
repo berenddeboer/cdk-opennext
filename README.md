@@ -110,6 +110,10 @@ CI tests the pinned minimum and the latest published CDK 2.x. Missing bundled
 handler assets or failure to reuse the expected singleton are explicit errors,
 not permission to synthesize a different deletion provider. Keep `aws-cdk-lib`
 external when bundling infrastructure code so its handler assets remain available.
+The latest-CDK job also runs weekly to detect upstream changes between PRs.
+Within a stack, prefer reusing the same `IRole` object. Compatibility checks
+compare resolved ARN expressions; differently tokenized imports of the same
+physical role can be rejected rather than guessed equivalent.
 
 For a stable role used by multiple stacks, import it separately into each stack
 with **distinct policy ownership names**:
