@@ -59,7 +59,9 @@ const site = new NextjsSite(this, "NextjsSite", {
 
 Set `defaultFunctionProps.role` to reuse an existing Lambda execution role across
 the default server, additional server origins, image optimizer, revalidation,
-initialization, warmer, pre-warmer, and both custom-resource provider functions:
+initialization, warmer, pre-warmer, custom-resource providers, S3 deployments,
+bucket auto-delete, and DNS certificate helpers. No site-generated IAM roles
+remain anywhere in the stack:
 
 ```typescript
 const site = new NextjsSite(this, "NextjsSite", {
@@ -71,17 +73,71 @@ const site = new NextjsSite(this, "NextjsSite", {
 
 The role must trust `lambda.amazonaws.com`. The construct grants the required
 permissions to the shared role, so all functions using it share the combined
-permissions. If the role is imported as immutable, provision these permissions
-separately. Without a supplied role, functions continue creating their own roles.
+permissions. A usable policy attachment path is required; immutable imported
+roles (including `withoutPolicyUpdates()`) are rejected rather than silently
+discarding grants. The deployment principal must be able to attach the policies
+and pass the role. Without a supplied role, existing generated-role behavior remains.
 In particular, the image optimizer, warmer, pre-warmer, and provider functions
 inherit the server's S3, DynamoDB, and SQS permissions through this shared role.
-CDK-internal S3 deployment and bucket auto-delete helpers still manage their own
-roles. Other `defaultFunctionProps` settings apply only to the default server.
+Source-asset reads are scoped to the deployed archives; auto-delete permissions
+remain in each bucket's resource policy. Other `defaultFunctionProps` settings
+apply only to the default server. An explicit per-function role takes precedence
+where a function-role input is supported; there are currently no separate public
+image optimizer, warmer, or helper-role inputs.
+The existing `defaultFunctionProps.logRetentionRole` override takes precedence
+for the deprecated `logRetention` helper; otherwise that helper uses the shared
+role too. Its stack singleton must also have a compatible role.
 With a shared role, site functions receive deterministic names to avoid
 CloudFormation dependency cycles. This can replace existing unnamed functions
 when upgrading; an explicit `defaultFunctionProps.functionName` is preserved.
 Later changes that require replacing an explicitly named function may need a new
 name or a staged migration; review the CloudFormation change set before deploying.
+
+S3 helpers are **stack-level singletons**. All `NextjsSite` instances in a stack
+must share the same supplied role, or all omit it. Mixed or distinct-role sites,
+and a pre-existing incompatible S3 helper, fail at construction rather than
+silently retaining or changing another site's identity. Unrelated CDK bucket
+deployments must use the same role when sharing the deployment singleton.
+Create sites before unrelated auto-delete buckets so they reuse the configured
+provider; those buckets also use the supplied role and retain their own bucket
+policy grants. This integration does not reconfigure previously created helpers
+or helpers in other stacks. CDK's bundled auto-delete handler and singleton paths
+are an encapsulated compatibility integration, covered by template/handler tests.
+
+For a stable role used by multiple stacks, import it separately into each stack
+with **distinct policy ownership names**:
+
+```typescript
+const executionRole = iam.Role.fromRoleArn(this, "ExecutionRole", roleArn, {
+  mutable: true,
+  defaultPolicyName: "FrontendBlueSitePermissions", // different in every owning stack
+})
+```
+
+Do not import the same role multiple times with conflicting policy ownership.
+Each stack attaches and deletes only its own inline policy; the caller owns the
+external role's lifecycle. Avoid exporting a site-owned role from a disposable
+stack. The minimum supported CDK peer is **2.274.0** (`^2.274.0`, unchanged from
+0.7.0); a consumer resolving 2.273.0 must update its CDK dependency/lockfile.
+
+#### Migration from 0.7.0
+
+Adding a supplied role removes the old IAM role resources from the template;
+CloudFormation deletes them instead of retaining unused declarations. Bucket,
+table, queue and custom-resource logical IDs, service tokens, and provider Lambda
+identities are preserved. The auto-delete provider changes its execution role
+in place, using CDK's existing handler and tag/deletion safeguards. A role-only
+update does not request bucket cleanup. Asset deployments still use `prune: false`;
+actual site deletion still empties its tagged bucket and destroys its table.
+
+Keep stack/site construct paths unchanged. Inspect the change set: there must
+be no bucket/table/queue replacement, provider replacement, or custom-resource
+service-token change. Ordinary runtime functions may be replaced as noted above.
+Back up state before migration and retain the external role and permissions
+through rollback/deletion. Tests compare identities captured from the published
+0.7.0 package and exercise the actual deletion handler with mocked AWS calls;
+they do **not** establish live migration safety. No credentialed deployment,
+rollback, or deletion round-trip has been performed for this change.
 
 ## Lambda Warming
 

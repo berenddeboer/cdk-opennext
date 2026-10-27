@@ -1351,8 +1351,13 @@ Props for the default server Lambda function.
 
 The role, when supplied, is
 also reused by all other site Lambda functions and custom-resource providers.
-Required permissions are granted to this shared role. CDK-internal S3
-deployment and bucket auto-delete helpers do not use this role.
+This includes S3 deployment, bucket auto-delete and DNS certificate helpers.
+Required permissions are attached to this mutable, Lambda-trusted role.
+All sites in a stack must use the same role (or all omit it), because S3
+helpers are stack singletons. Imported roles shared across stacks require
+a distinct defaultPolicyName per stack. Explicit function role inputs take
+precedence over this default wherever supported, including logRetentionRole
+for the deprecated log-retention helper. That helper is also a stack singleton.
 
 ---
 
