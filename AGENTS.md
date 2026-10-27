@@ -1,6 +1,6 @@
 # Agent Guidelines for cdk-opennext
 
-CDK construct to deploy a Next.js 15+ application to AWS using the OpenNext AWS adapter. Optimised for use with the Nx monorepo tool
+CDK construct to deploy a Next.js 16+ application to AWS using the OpenNext AWS adapter. Next.js 15 and earlier are not supported. Optimised for use with the Nx monorepo tool
 
 ## Build & Test Commands
 
