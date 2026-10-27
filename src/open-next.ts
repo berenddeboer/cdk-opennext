@@ -27,7 +27,7 @@ import {
 import { TableV2 as Table, AttributeType, Billing } from "aws-cdk-lib/aws-dynamodb"
 import { Rule, Schedule } from "aws-cdk-lib/aws-events"
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets"
-import { type IGrantable, type IRole } from "aws-cdk-lib/aws-iam"
+import { type IGrantable } from "aws-cdk-lib/aws-iam"
 import {
   Code,
   Function as CdkFunction,
@@ -62,7 +62,7 @@ import { Provider } from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 import { SuppliedRoleBucketAutoDeleteProvider } from "./bucket-auto-delete-provider"
 import { scopedAssetSource } from "./deployment-source"
-import { grantLogging, sameRole } from "./role-helpers"
+import { grantLogging, hasExecutionRole, sameRole } from "./role-helpers"
 
 type BaseFunction = {
   handler: string
@@ -560,7 +560,8 @@ export class NextjsSite extends Construct {
       ) {
         throw new Error(
           "Incompatible BucketDeployment singleton execution role. Use the same role " +
-            "for all deployments sharing this stack singleton, or omit roles for all."
+            "for all deployments sharing this stack singleton, or omit roles for all. " +
+            "Reuse the same IRole object to avoid differently tokenized ARN imports."
         )
       }
     }
@@ -751,14 +752,15 @@ export class NextjsSite extends Construct {
       const existing = Stack.of(this).node.tryFindChild(
         // CDK aws-logs LogRetention.ensureSingletonLogRetentionFunction's ID.
         "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a"
-      ) as (Construct & { readonly role?: IRole }) | undefined
+      )
       if (
         existing &&
-        (!existing.role || !sameRole(this, existing.role, logRetentionRole))
+        (!hasExecutionRole(existing) || !sameRole(this, existing.role, logRetentionRole))
       ) {
         throw new Error(
           "Incompatible LogRetention singleton execution role. Use the same " +
-            "logRetentionRole for all users of this stack singleton, or omit roles for all."
+            "logRetentionRole for all users of this stack singleton, or omit roles for all. " +
+            "Reuse the same IRole object to avoid differently tokenized ARN imports."
         )
       }
       grantLogging(logRetentionRole)

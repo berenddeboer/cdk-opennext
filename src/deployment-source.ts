@@ -17,6 +17,8 @@ export function scopedAssetSource(assetPath: string): ISource {
       if (!asset.isZipArchive) {
         throw new Error("BucketDeployment assets must be directories or zip archives")
       }
+      // Like Source.asset, the bootstrap bucket reference cannot discover a CMK.
+      // A caller using encrypted staging must separately grant key decryption.
       asset.bucket.grantRead(context.handlerRole, asset.s3ObjectKey)
       return { bucket: asset.bucket, zipObjectKey: asset.s3ObjectKey }
     },

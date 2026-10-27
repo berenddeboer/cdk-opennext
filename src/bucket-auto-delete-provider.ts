@@ -12,6 +12,8 @@ import { grantLogging, sameRole } from "./role-helpers"
  * the service token can send a Delete to the old provider and empty the bucket.
  * The CDK handler (including its deletion safeguards) is deliberately reused.
  * Template compatibility is tested against the minimum and latest CDK 2.x.
+ * Remove this shim when CDK exposes a role input that preserves these identities:
+ * https://github.com/aws/aws-cdk/issues/16496
  *
  * @internal
  */
@@ -28,13 +30,16 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
         sameRole(stack, existing.executionRole, role)
       ) {
         grantLogging(role)
+        // Reset for this site's synchronous prepare -> Bucket -> assertBound
+        // sequence; an earlier bucket's read must not mask a later lookup failure.
         existing.bound = false
         return
       }
       if (!role && !(existing instanceof SuppliedRoleBucketAutoDeleteProvider)) return
       throw new Error(
         "Incompatible S3 auto-delete singleton roles: all sites and auto-delete " +
-          "buckets in a stack must use the same supplied role, or all use generated roles."
+          "buckets in a stack must use the same supplied role, or all use generated roles. " +
+          "Reuse the same IRole object to avoid differently tokenized ARN imports."
       )
     }
     if (role) new SuppliedRoleBucketAutoDeleteProvider(stack, id, role)
@@ -68,17 +73,23 @@ export class SuppliedRoleBucketAutoDeleteProvider extends Construct {
           "Use a tested CDK version with its bundled handler assets installed."
       )
     }
-    const code = Code.fromAsset(directory).bind(this)
+    let code: Record<string, string>
+    if (this.node.tryGetContext("@aws-cdk/core:inlineCustomResourceIfPossible")) {
+      code = { ZipFile: readFileSync(path.join(directory, "index.js"), "utf8") }
+    } else {
+      const location = Code.fromAsset(directory).bind(this).s3Location
+      if (!location) {
+        throw new Error(
+          "CDK auto-delete handler asset did not provide an S3 code location"
+        )
+      }
+      code = { S3Bucket: location.bucketName, S3Key: location.objectKey }
+    }
     // CustomResourceProviderBase uses this child ID for its Lambda resource.
     const handler = new CfnResource(this, "Handler", {
       type: "AWS::Lambda::Function",
       properties: {
-        Code: this.node.tryGetContext("@aws-cdk/core:inlineCustomResourceIfPossible")
-          ? { ZipFile: readFileSync(path.join(directory, "index.js"), "utf8") }
-          : {
-              S3Bucket: code.s3Location!.bucketName,
-              S3Key: code.s3Location!.objectKey,
-            },
+        Code: code,
         Handler: "index.handler",
         Role: role.roleArn,
         Runtime: determineLatestNodeRuntimeName(this),

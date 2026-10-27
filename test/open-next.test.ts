@@ -4,12 +4,19 @@ import * as path from "path"
 import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
 import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam"
+import { Key } from "aws-cdk-lib/aws-kms"
 import { LogGroup, LogRetention, RetentionDays } from "aws-cdk-lib/aws-logs"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Bucket } from "aws-cdk-lib/aws-s3"
 import { Asset } from "aws-cdk-lib/aws-s3-assets"
 import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
-import { Duration, Names, RemovalPolicy, Stack } from "aws-cdk-lib/core"
+import {
+  DefaultStackSynthesizer,
+  Duration,
+  Names,
+  RemovalPolicy,
+  Stack,
+} from "aws-cdk-lib/core"
 import { NextjsSite } from "../src/open-next"
 
 describe("NextjsSite", () => {
@@ -159,86 +166,93 @@ describe("NextjsSite", () => {
   })
 
   describe("shared execution role", () => {
-    it("preserves 0.7.0 stateful identities and service tokens when switching roles", () => {
-      // Captured from the published npm cdk-opennext@0.7.0, using CDK 2.274.0,
-      // stack MigrationStack, site TestOpenNext, all helpers and additional origin.
-      const baseline = JSON.parse(
-        fs.readFileSync(path.join(__dirname, "fixtures/0.7.0-identities.json"), "utf8")
-      )
-      const fixture = createOpenNextFixture({
-        ...mockOpenNextOutput,
-        origins: {
-          ...mockOpenNextOutput.origins,
-          additional: { ...mockOpenNextOutput.origins.default },
-        },
-        additionalProps: {
-          ...mockOpenNextOutput.additionalProps,
-          warmer: { handler: "index.handler", bundle: "server-function" },
-        },
-      })
-      const synth = (supplied: boolean) => {
-        const migrationStack = new Stack(undefined, "MigrationStack", {
-          env: { account: "123456789012", region: "us-east-1" },
-        })
-        const role = supplied
-          ? Role.fromRoleArn(
-              migrationStack,
-              "Role",
-              "arn:aws:iam::123456789012:role/ExistingExecutionRole"
-            )
-          : undefined
-        new NextjsSite(migrationStack, "TestOpenNext", {
-          openNextPath: fixture.openNextPath,
-          defaultFunctionProps: { role },
-        })
-        return {
-          resources: Template.fromStack(migrationStack).toJSON().Resources,
-          // Assets are manifest entries, not standalone CloudFormation resources.
-          // Check their construct-derived identity as well as the CR source keys.
-          assets: migrationStack.node
-            .findAll()
-            .filter(
-              (node) =>
-                node instanceof Asset &&
-                node.node.path.includes("OpenNextBucketDeployment")
-            )
-            .map((node) => ({ path: node.node.path, id: Names.uniqueId(node) })),
-        }
-      }
-      const generated = synth(false)
-      const supplied = synth(true)
-      expect(supplied.assets).toEqual(generated.assets)
-      expect(supplied.assets).toHaveLength(2)
-      const before = generated.resources
-      const after = supplied.resources
-      for (const id of baseline.stateful) {
-        expect(after[id]).toEqual(before[id])
-      }
-      for (const [id, token] of Object.entries(baseline.tokens)) {
-        expect(before[id].Properties.ServiceToken).toEqual(token)
-        expect(after[id].Properties.ServiceToken).toEqual(token)
-        if (before[id].Type === "Custom::CDKBucketDeployment") {
-          expect(after[id].Properties.SourceBucketNames).toEqual(
-            before[id].Properties.SourceBucketNames
-          )
-          expect(after[id].Properties.SourceObjectKeys).toEqual(
-            before[id].Properties.SourceObjectKeys
-          )
-        }
-      }
-      for (const id of baseline.providerFunctions) {
-        expect(after[id].Properties.FunctionName).toEqual(
-          before[id].Properties.FunctionName
+    it.each([false, true])(
+      "preserves 0.7.0 identities when switching roles (inline: %s)",
+      (inline) => {
+        // Captured from the published npm cdk-opennext@0.7.0, using CDK 2.274.0,
+        // stack MigrationStack, site TestOpenNext, all helpers and additional origin.
+        const baseline = JSON.parse(
+          fs.readFileSync(path.join(__dirname, "fixtures/0.7.0-identities.json"), "utf8")
         )
-        expect(after[id].Properties.Code).toEqual(before[id].Properties.Code)
-        expect(after[id].Properties.Handler).toEqual(before[id].Properties.Handler)
+        const fixture = createOpenNextFixture({
+          ...mockOpenNextOutput,
+          origins: {
+            ...mockOpenNextOutput.origins,
+            additional: { ...mockOpenNextOutput.origins.default },
+          },
+          additionalProps: {
+            ...mockOpenNextOutput.additionalProps,
+            warmer: { handler: "index.handler", bundle: "server-function" },
+          },
+        })
+        const synth = (supplied: boolean) => {
+          const migrationStack = new Stack(undefined, "MigrationStack", {
+            env: { account: "123456789012", region: "us-east-1" },
+          })
+          migrationStack.node.setContext(
+            "@aws-cdk/core:inlineCustomResourceIfPossible",
+            inline
+          )
+          const role = supplied
+            ? Role.fromRoleArn(
+                migrationStack,
+                "Role",
+                "arn:aws:iam::123456789012:role/ExistingExecutionRole"
+              )
+            : undefined
+          new NextjsSite(migrationStack, "TestOpenNext", {
+            openNextPath: fixture.openNextPath,
+            defaultFunctionProps: { role },
+          })
+          return {
+            resources: Template.fromStack(migrationStack).toJSON().Resources,
+            // Assets are manifest entries, not standalone CloudFormation resources.
+            // Check their construct-derived identity as well as the CR source keys.
+            assets: migrationStack.node
+              .findAll()
+              .filter(
+                (node) =>
+                  node instanceof Asset &&
+                  node.node.path.includes("OpenNextBucketDeployment")
+              )
+              .map((node) => ({ path: node.node.path, id: Names.uniqueId(node) })),
+          }
+        }
+        const generated = synth(false)
+        const supplied = synth(true)
+        expect(supplied.assets).toEqual(generated.assets)
+        expect(supplied.assets).toHaveLength(2)
+        const before = generated.resources
+        const after = supplied.resources
+        for (const id of baseline.stateful) {
+          expect(after[id]).toEqual(before[id])
+        }
+        for (const [id, token] of Object.entries(baseline.tokens)) {
+          expect(before[id].Properties.ServiceToken).toEqual(token)
+          expect(after[id].Properties.ServiceToken).toEqual(token)
+          if (before[id].Type === "Custom::CDKBucketDeployment") {
+            expect(after[id].Properties.SourceBucketNames).toEqual(
+              before[id].Properties.SourceBucketNames
+            )
+            expect(after[id].Properties.SourceObjectKeys).toEqual(
+              before[id].Properties.SourceObjectKeys
+            )
+          }
+        }
+        for (const id of baseline.providerFunctions) {
+          expect(after[id].Properties.FunctionName).toEqual(
+            before[id].Properties.FunctionName
+          )
+          expect(after[id].Properties.Code).toEqual(before[id].Properties.Code)
+          expect(after[id].Properties.Handler).toEqual(before[id].Properties.Handler)
+        }
+        const oldRoles = Object.keys(before).filter(
+          (id) => before[id].Type === "AWS::IAM::Role"
+        )
+        expect(oldRoles.length).toBeGreaterThan(5)
+        for (const id of oldRoles) expect(after[id]).toBeUndefined()
       }
-      const oldRoles = Object.keys(before).filter(
-        (id) => before[id].Type === "AWS::IAM::Role"
-      )
-      expect(oldRoles.length).toBeGreaterThan(5)
-      for (const id of oldRoles) expect(after[id]).toBeUndefined()
-    })
+    )
 
     it.each(
       ["created", "imported", "none"].flatMap((roleConfiguration) =>
@@ -619,6 +633,63 @@ describe("NextjsSite", () => {
         Role: role.roleArn,
         Code: { ZipFile: Match.stringLikeRegexp("aws-cdk:auto-delete-objects") },
       })
+      const provider = stack.node.findChild(
+        "Custom::S3AutoDeleteObjectsCustomResourceProvider"
+      )
+      expect(
+        provider.node.findAll().filter((node) => node instanceof Asset)
+      ).toHaveLength(0)
+    })
+
+    it("keeps caller-managed decryption grants for encrypted staging buckets", () => {
+      const keyArn =
+        "arn:aws:kms:us-east-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+      const encryptedStack = new Stack(undefined, "EncryptedStaging", {
+        env: { account: "123456789012", region: "us-east-1" },
+        synthesizer: new DefaultStackSynthesizer({
+          fileAssetsBucketName: "encrypted-staging",
+        }),
+      })
+      const role = new Role(encryptedStack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      Key.fromKeyArn(encryptedStack, "StagingKey", keyArn).grantDecrypt(role)
+      new NextjsSite(encryptedStack, "Site", {
+        openNextPath,
+        defaultFunctionProps: { role },
+      })
+      const template = Template.fromStack(encryptedStack)
+      template.resourceCountIs("AWS::IAM::Role", 1)
+      template.hasResourceProperties("AWS::IAM::Policy", {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({ Action: "kms:Decrypt", Resource: keyArn }),
+          ]),
+        },
+      })
+      template.hasResourceProperties("Custom::CDKBucketDeployment", {
+        SourceBucketNames: ["encrypted-staging"],
+      })
+    })
+
+    it("rejects an immutable explicit log-retention override", () => {
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      const loggingRole = new Role(stack, "LoggingRole", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      }).withoutPolicyUpdates()
+      expect(
+        () =>
+          new NextjsSite(stack, "Site", {
+            openNextPath,
+            defaultFunctionProps: {
+              role,
+              logRetentionRole: loggingRole,
+              logRetention: RetentionDays.ONE_WEEK,
+            },
+          })
+      ).toThrow(/mutable/)
     })
 
     it("rejects a pre-existing incompatible log-retention singleton", () => {

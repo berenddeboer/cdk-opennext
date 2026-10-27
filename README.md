@@ -90,6 +90,11 @@ image optimizer, warmer, or helper-role inputs.
 The existing `defaultFunctionProps.logRetentionRole` override takes precedence
 for the deprecated `logRetention` helper; otherwise that helper uses the shared
 role too. Its stack singleton must also have a compatible role.
+For a customer-managed-KMS-encrypted bootstrap/staging bucket, the caller must
+also grant `stagingKey.grantDecrypt(executionRole)` (and allow access in the key
+policy). CDK's asset bucket reference does not expose that key, so neither
+`Source.asset` nor this scoped source can discover and grant it automatically.
+Keep this explicit grant for the lifetime of deployments using that staging key.
 With a shared role, site functions receive deterministic names to avoid
 CloudFormation dependency cycles. This can replace existing unnamed functions
 when upgrading; an explicit `defaultFunctionProps.functionName` is preserved.
@@ -111,6 +116,10 @@ handler assets or failure to reuse the expected singleton are explicit errors,
 not permission to synthesize a different deletion provider. Keep `aws-cdk-lib`
 external when bundling infrastructure code so its handler assets remain available.
 The latest-CDK job also runs weekly to detect upstream changes between PRs.
+The currently verified versions are 2.274.0 and 2.275.0, not every future release
+permitted by the peer range. Before updating CDK for an existing deployment, run
+the compatibility tests and inspect its change set. The public-role-input exit
+path is tracked by [aws/aws-cdk#16496](https://github.com/aws/aws-cdk/issues/16496).
 Within a stack, prefer reusing the same `IRole` object. Compatibility checks
 compare resolved ARN expressions; differently tokenized imports of the same
 physical role can be rejected rather than guessed equivalent.

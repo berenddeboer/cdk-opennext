@@ -10,6 +10,18 @@ import { Construct, Dependable } from "constructs"
 const loggingGrants = new WeakMap<IRole, AddToPrincipalPolicyResult>()
 
 /** @internal */
+export function hasExecutionRole(value: Construct): value is Construct & { role: IRole } {
+  const role = "role" in value ? value.role : undefined
+  return (
+    Construct.isConstruct(role) &&
+    "roleArn" in role &&
+    typeof role.roleArn === "string" &&
+    "addToPrincipalPolicy" in role &&
+    typeof role.addToPrincipalPolicy === "function"
+  )
+}
+
+/** @internal */
 export function sameRole(scope: Construct, first: IRole, second: IRole): boolean {
   const stack = Stack.of(scope)
   return (
