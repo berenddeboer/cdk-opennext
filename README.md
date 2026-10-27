@@ -80,6 +80,8 @@ roles. Other `defaultFunctionProps` settings apply only to the default server.
 With a shared role, site functions receive deterministic names to avoid
 CloudFormation dependency cycles. This can replace existing unnamed functions
 when upgrading; an explicit `defaultFunctionProps.functionName` is preserved.
+Later changes that require replacing an explicitly named function may need a new
+name or a staged migration; review the CloudFormation change set before deploying.
 
 ## Lambda Warming
 
