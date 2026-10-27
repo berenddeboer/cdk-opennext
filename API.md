@@ -1273,7 +1273,7 @@ const nextjsSiteProps: NextjsSiteProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.createDistribution">createDistribution</a></code> | <code>boolean</code> | Whether to create a CloudFront distribution. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.customDomain">customDomain</a></code> | <code><a href="#cdk-opennext.DistributionDomainProps">DistributionDomainProps</a></code> | The customDomain for this website. |
-| <code><a href="#cdk-opennext.NextjsSiteProps.property.defaultFunctionProps">defaultFunctionProps</a></code> | <code><a href="#cdk-opennext.DefaultFunctionProps">DefaultFunctionProps</a></code> | Default props to apply to all Lambda functions created by this construct. |
+| <code><a href="#cdk-opennext.NextjsSiteProps.property.defaultFunctionProps">defaultFunctionProps</a></code> | <code><a href="#cdk-opennext.DefaultFunctionProps">DefaultFunctionProps</a></code> | Props for the default server Lambda function. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.aws_logs.ILogGroup</code> | CloudWatch log group to use for the server, image optimizer, and revalidation functions. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.openNextPath">openNextPath</a></code> | <code>string</code> | Should point to the .open-next directory. |
 | <code><a href="#cdk-opennext.NextjsSiteProps.property.prewarmOnDeploy">prewarmOnDeploy</a></code> | <code>boolean</code> | Whether to invoke the warmer function immediately after deployment. |
@@ -1347,9 +1347,12 @@ public readonly defaultFunctionProps: DefaultFunctionProps;
 
 - *Type:* <a href="#cdk-opennext.DefaultFunctionProps">DefaultFunctionProps</a>
 
-Default props to apply to all Lambda functions created by this construct.
+Props for the default server Lambda function.
 
-These can be overridden by specific function configurations.
+The role, when supplied, is
+also reused by all other site Lambda functions and custom-resource providers.
+Required permissions are granted to this shared role. CDK-internal S3
+deployment and bucket auto-delete helpers do not use this role.
 
 ---
 

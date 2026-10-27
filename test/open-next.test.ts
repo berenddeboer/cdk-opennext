@@ -3,6 +3,7 @@ import * as os from "os"
 import * as path from "path"
 import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
+import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam"
 import { LogGroup } from "aws-cdk-lib/aws-logs"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
 import { Duration, Stack } from "aws-cdk-lib/core"
@@ -148,6 +149,181 @@ describe("NextjsSite", () => {
       expect(construct).toBeDefined()
       expect(construct.distribution).toBeDefined()
       expect(construct.defaultServerFunction).toBeDefined()
+    })
+  })
+
+  describe("shared execution role", () => {
+    it.each(
+      ["created", "imported", "none"].flatMap((roleConfiguration) =>
+        [undefined, "CustomServer"].flatMap((functionName) =>
+          [true, false].map((prewarmOnDeploy) => ({
+            roleConfiguration,
+            functionName,
+            prewarmOnDeploy,
+          }))
+        )
+      )
+    )(
+      "should preserve role $roleConfiguration, name $functionName, prewarm $prewarmOnDeploy",
+      ({ roleConfiguration, functionName, prewarmOnDeploy }) => {
+        const output = {
+          ...mockOpenNextOutput,
+          origins: {
+            ...mockOpenNextOutput.origins,
+            additional: { ...mockOpenNextOutput.origins.default },
+          },
+          additionalProps: {
+            ...mockOpenNextOutput.additionalProps,
+            warmer: {
+              handler: "index.handler",
+              bundle: "server-function",
+            },
+          },
+        }
+        const fixture = createOpenNextFixture(output)
+        const role =
+          roleConfiguration === "created"
+            ? new Role(stack, "SharedExecutionRole", {
+                assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+              })
+            : roleConfiguration === "imported"
+              ? Role.fromRoleArn(
+                  stack,
+                  "SharedExecutionRole",
+                  "arn:aws:iam::123456789012:role/ExistingExecutionRole"
+                )
+              : undefined
+
+        new NextjsSite(stack, "TestOpenNext", {
+          openNextPath: fixture.openNextPath,
+          prewarmOnDeploy,
+          defaultFunctionProps: {
+            role,
+            functionName,
+          },
+        })
+
+        const template = Template.fromStack(stack)
+        const functions = template.findResources("AWS::Lambda::Function")
+        const functionIds = [
+          "defaultFunction",
+          "additionalFunction",
+          "imageOptimizerFunction",
+          "RevalidationInsertFunction",
+          "RevalidationFunction",
+          "RevalidationProviderframeworkonEvent",
+          "WarmerFunction",
+          ...(prewarmOnDeploy
+            ? ["PrewarmerFunction", "PrewarmerProviderframeworkonEvent"]
+            : []),
+        ]
+        if (!prewarmOnDeploy) {
+          expect(
+            Object.keys(functions).filter((id) => id.startsWith("TestOpenNextPrewarmer"))
+          ).toHaveLength(0)
+        }
+        const roles = functionIds.map((id) => {
+          const matches = Object.entries(functions).filter(([logicalId]) =>
+            logicalId.startsWith(`TestOpenNext${id}`)
+          )
+          expect(matches).toHaveLength(1)
+          const functionRole = matches[0][1].Properties.Role
+          if (role) {
+            expect(functionRole).toEqual(stack.resolve(role.roleArn))
+            if (!id.includes("framework")) {
+              expect(matches[0][1].Properties.FunctionName).toEqual(expect.any(String))
+              expect(matches[0][1].Properties.FunctionName.length).toBeLessThanOrEqual(64)
+            }
+          } else {
+            expect(matches[0][1].Properties.FunctionName).toBe(
+              id === "defaultFunction" ? functionName : undefined
+            )
+          }
+          return JSON.stringify(functionRole)
+        })
+        expect(new Set(roles).size).toBe(role ? 1 : functionIds.length)
+        if (functionName) {
+          expect(
+            Object.values(functions).filter(
+              (fn) => fn.Properties.FunctionName === functionName
+            )
+          ).toHaveLength(1)
+        }
+
+        if (role) {
+          const policies = template.findResources("AWS::IAM::Policy", {
+            Properties: {
+              Roles: [stack.resolve(role.roleName)],
+            },
+          })
+          expect(Object.keys(policies)).toHaveLength(1)
+          const policy = JSON.stringify(Object.values(policies)[0])
+          // A function depends on its role's policy. References back to any
+          // function would therefore create a CloudFormation dependency cycle.
+          for (const logicalId of Object.keys(functions)) {
+            expect(policy).not.toContain(`"${logicalId}"`)
+          }
+          for (const action of [
+            "s3:GetObject*",
+            "dynamodb:PutItem",
+            "sqs:SendMessage",
+            "lambda:InvokeFunction",
+          ]) {
+            expect(policy).toContain(action)
+          }
+        }
+      }
+    )
+
+    it("should use distinct function names for sites sharing a role in one stack", () => {
+      const role = new Role(stack, "SharedExecutionRole", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      for (const id of ["FirstSite", "SecondSite"]) {
+        new NextjsSite(stack, id, {
+          openNextPath,
+          defaultFunctionProps: { role },
+          warm: false,
+        })
+      }
+
+      const functions = Template.fromStack(stack).findResources("AWS::Lambda::Function")
+      const siteFunctions = Object.entries(functions).filter(([logicalId]) =>
+        /^(FirstSite|SecondSite)/.test(logicalId)
+      )
+      expect(siteFunctions).toHaveLength(10)
+      for (const [, fn] of siteFunctions) {
+        expect(fn.Properties.Role).toEqual(stack.resolve(role.roleArn))
+      }
+      const names = siteFunctions
+        .map(([, fn]) => fn.Properties.FunctionName)
+        .filter((name) => name !== undefined)
+      expect(names).toHaveLength(8)
+      expect(new Set(names).size).toBe(names.length)
+    })
+
+    it("should use distinct names for identical site paths in different stacks", () => {
+      const names = ["FirstStack", "SecondStack"].flatMap((stackName) => {
+        const siteStack = new Stack(undefined, stackName, { stackName })
+        const role = Role.fromRoleArn(
+          siteStack,
+          "SharedExecutionRole",
+          "arn:aws:iam::123456789012:role/ExistingExecutionRole"
+        )
+        new NextjsSite(siteStack, "SameSite", {
+          openNextPath,
+          defaultFunctionProps: { role },
+          warm: false,
+        })
+        const functions = Template.fromStack(siteStack).findResources(
+          "AWS::Lambda::Function"
+        )
+        return Object.values(functions)
+          .map((fn) => fn.Properties.FunctionName)
+          .filter((name) => name !== undefined)
+      })
+      expect(names).toHaveLength(8)
+      expect(new Set(names).size).toBe(names.length)
     })
   })
 
