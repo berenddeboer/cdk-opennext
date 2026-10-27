@@ -4,9 +4,19 @@ import * as path from "path"
 import { Annotations, Template, Match } from "aws-cdk-lib/assertions"
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager"
 import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam"
-import { LogGroup } from "aws-cdk-lib/aws-logs"
+import { Key } from "aws-cdk-lib/aws-kms"
+import { LogGroup, LogRetention, RetentionDays } from "aws-cdk-lib/aws-logs"
 import { HostedZone } from "aws-cdk-lib/aws-route53"
-import { Duration, Stack } from "aws-cdk-lib/core"
+import { Bucket } from "aws-cdk-lib/aws-s3"
+import { Asset } from "aws-cdk-lib/aws-s3-assets"
+import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment"
+import {
+  DefaultStackSynthesizer,
+  Duration,
+  Names,
+  RemovalPolicy,
+  Stack,
+} from "aws-cdk-lib/core"
 import { NextjsSite } from "../src/open-next"
 
 describe("NextjsSite", () => {
@@ -82,6 +92,9 @@ describe("NextjsSite", () => {
 
     fs.mkdirSync(fixtureOpenNextPath, { recursive: true })
     fs.mkdirSync(path.join(fixtureDir, "assets"), { recursive: true })
+    for (const copy of output.origins.s3.copy) {
+      fs.mkdirSync(path.join(fixtureDir, copy.from), { recursive: true })
+    }
     fs.mkdirSync(path.join(fixtureDir, "server-function"), { recursive: true })
     fs.mkdirSync(path.join(fixtureDir, "image-optimization-function"), {
       recursive: true,
@@ -153,6 +166,101 @@ describe("NextjsSite", () => {
   })
 
   describe("shared execution role", () => {
+    it.each([false, true])(
+      "preserves 0.7.0 identities when switching roles (inline: %s)",
+      (inline) => {
+        // Captured from the published npm cdk-opennext@0.7.0, using CDK 2.274.0,
+        // stack MigrationStack, site TestOpenNext, all helpers and additional origin.
+        const baseline = JSON.parse(
+          fs.readFileSync(path.join(__dirname, "fixtures/0.7.0-identities.json"), "utf8")
+        )
+        const fixture = createOpenNextFixture({
+          ...mockOpenNextOutput,
+          origins: {
+            ...mockOpenNextOutput.origins,
+            additional: { ...mockOpenNextOutput.origins.default },
+          },
+          additionalProps: {
+            ...mockOpenNextOutput.additionalProps,
+            warmer: { handler: "index.handler", bundle: "server-function" },
+          },
+        })
+        const synth = (supplied: boolean) => {
+          const migrationStack = new Stack(undefined, "MigrationStack", {
+            env: { account: "123456789012", region: "us-east-1" },
+          })
+          migrationStack.node.setContext(
+            "@aws-cdk/core:inlineCustomResourceIfPossible",
+            inline
+          )
+          const role = supplied
+            ? Role.fromRoleArn(
+                migrationStack,
+                "Role",
+                "arn:aws:iam::123456789012:role/ExistingExecutionRole"
+              )
+            : undefined
+          new NextjsSite(migrationStack, "TestOpenNext", {
+            openNextPath: fixture.openNextPath,
+            defaultFunctionProps: { role },
+          })
+          return {
+            resources: Template.fromStack(migrationStack).toJSON().Resources,
+            // Assets are manifest entries, not standalone CloudFormation resources.
+            // Check their construct-derived identity as well as the CR source keys.
+            assets: migrationStack.node
+              .findAll()
+              .filter(
+                (node) =>
+                  node instanceof Asset &&
+                  node.node.path.includes("OpenNextBucketDeployment")
+              )
+              .map((node) => ({ path: node.node.path, id: Names.uniqueId(node) })),
+          }
+        }
+        const generated = synth(false)
+        const supplied = synth(true)
+        expect(supplied.assets).toEqual(generated.assets)
+        expect(supplied.assets).toHaveLength(2)
+        const before = generated.resources
+        const after = supplied.resources
+        for (const id of baseline.stateful) {
+          expect(after[id]).toEqual(before[id])
+        }
+        for (const [id, token] of Object.entries(baseline.tokens)) {
+          expect(before[id].Properties.ServiceToken).toEqual(token)
+          expect(after[id].Properties.ServiceToken).toEqual(token)
+          if (before[id].Type === "Custom::CDKBucketDeployment") {
+            expect(after[id].Properties.SourceBucketNames).toEqual(
+              before[id].Properties.SourceBucketNames
+            )
+            expect(after[id].Properties.SourceObjectKeys).toEqual(
+              before[id].Properties.SourceObjectKeys
+            )
+          }
+        }
+        for (const id of baseline.providerFunctions) {
+          for (const property of [
+            "FunctionName",
+            "Code",
+            "Handler",
+            "Timeout",
+            "MemorySize",
+            "Runtime",
+          ]) {
+            expect(after[id].Properties[property]).toEqual(
+              before[id].Properties[property]
+            )
+          }
+        }
+        const oldRoles = Object.keys(before).filter(
+          (id) => before[id].Type === "AWS::IAM::Role"
+        )
+        expect(oldRoles.length).toBeGreaterThan(5)
+        for (const id of oldRoles) expect(after[id]).toBeUndefined()
+      }
+    )
+
     it.each(
       ["created", "imported", "none"].flatMap((roleConfiguration) =>
         [undefined, "CustomServer"].flatMap((functionName) =>
@@ -170,6 +278,13 @@ describe("NextjsSite", () => {
           ...mockOpenNextOutput,
           origins: {
             ...mockOpenNextOutput.origins,
+            s3: {
+              ...mockOpenNextOutput.origins.s3,
+              copy: [
+                ...mockOpenNextOutput.origins.s3.copy,
+                { from: "more-assets", to: "_cache", cached: false, versionedSubDir: "" },
+              ],
+            },
             additional: { ...mockOpenNextOutput.origins.default },
           },
           additionalProps: {
@@ -204,6 +319,17 @@ describe("NextjsSite", () => {
         })
 
         const template = Template.fromStack(stack)
+        if (role) {
+          template.resourceCountIs(
+            "AWS::IAM::Role",
+            roleConfiguration === "created" ? 1 : 0
+          )
+          for (const fn of Object.values(
+            template.findResources("AWS::Lambda::Function")
+          )) {
+            expect(fn.Properties.Role).toEqual(stack.resolve(role.roleArn))
+          }
+        }
         const functions = template.findResources("AWS::Lambda::Function")
         const functionIds = [
           "defaultFunction",
@@ -268,8 +394,32 @@ describe("NextjsSite", () => {
             "dynamodb:PutItem",
             "sqs:SendMessage",
             "lambda:InvokeFunction",
+            "logs:PutLogEvents",
+            "sqs:ReceiveMessage",
           ]) {
             expect(policy).toContain(action)
+          }
+          const deployment = Object.values(
+            template.findResources("Custom::CDKBucketDeployment")
+          )[0]
+          expect(deployment.Properties.Prune).toBe(false)
+          const sourceKey = deployment.Properties.SourceObjectKeys[0]
+          expect(policy).toContain(sourceKey)
+          // Asset reads must target the actual archive, never bootstrap-bucket /*.
+          for (const resource of Object.values(policies)) {
+            for (const statement of resource.Properties.PolicyDocument.Statement) {
+              const targets = JSON.stringify(statement.Resource)
+              if (targets.includes("cdk-hnb659fds-assets")) {
+                expect(targets).toContain(sourceKey)
+                expect(targets).not.toContain('"/*"')
+              }
+            }
+          }
+          const bucketPolicy = JSON.stringify(
+            template.findResources("AWS::S3::BucketPolicy")
+          )
+          for (const action of ["s3:PutBucketPolicy", "s3:DeleteObject*", "s3:List*"]) {
+            expect(bucketPolicy).toContain(action)
           }
         }
       }
@@ -279,27 +429,42 @@ describe("NextjsSite", () => {
       const role = new Role(stack, "SharedExecutionRole", {
         assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
       })
+      const fixture = createOpenNextFixture({
+        ...mockOpenNextOutput,
+        additionalProps: {
+          ...mockOpenNextOutput.additionalProps,
+          warmer: { handler: "index.handler", bundle: "server-function" },
+        },
+      })
       for (const id of ["FirstSite", "SecondSite"]) {
         new NextjsSite(stack, id, {
-          openNextPath,
+          openNextPath: fixture.openNextPath,
           defaultFunctionProps: { role },
-          warm: false,
         })
       }
 
       const functions = Template.fromStack(stack).findResources("AWS::Lambda::Function")
+      Template.fromStack(stack).resourceCountIs("AWS::IAM::Role", 1)
       const siteFunctions = Object.entries(functions).filter(([logicalId]) =>
         /^(FirstSite|SecondSite)/.test(logicalId)
       )
-      expect(siteFunctions).toHaveLength(10)
+      expect(siteFunctions).toHaveLength(16)
       for (const [, fn] of siteFunctions) {
         expect(fn.Properties.Role).toEqual(stack.resolve(role.roleArn))
       }
       const names = siteFunctions
         .map(([, fn]) => fn.Properties.FunctionName)
         .filter((name) => name !== undefined)
-      expect(names).toHaveLength(8)
+      expect(names).toHaveLength(12)
       expect(new Set(names).size).toBe(names.length)
+      const policy = JSON.stringify(
+        Template.fromStack(stack).findResources("AWS::IAM::Policy")
+      )
+      for (const site of ["FirstSite", "SecondSite"]) {
+        for (const resource of ["S3Bucket", "RevalidationTable", "RevalidationQueue"]) {
+          expect(policy).toContain(`${site}${resource}`)
+        }
+      }
     })
 
     it("should use distinct names for identical site paths in different stacks", () => {
@@ -308,7 +473,8 @@ describe("NextjsSite", () => {
         const role = Role.fromRoleArn(
           siteStack,
           "SharedExecutionRole",
-          "arn:aws:iam::123456789012:role/ExistingExecutionRole"
+          "arn:aws:iam::123456789012:role/ExistingExecutionRole",
+          { defaultPolicyName: `${stackName}SitePermissions` }
         )
         new NextjsSite(siteStack, "SameSite", {
           openNextPath,
@@ -318,12 +484,253 @@ describe("NextjsSite", () => {
         const functions = Template.fromStack(siteStack).findResources(
           "AWS::Lambda::Function"
         )
+        const template = Template.fromStack(siteStack)
+        template.resourceCountIs("AWS::IAM::Role", 0)
+        template.hasResourceProperties("AWS::IAM::Policy", {
+          PolicyName: Match.stringLikeRegexp(`${stackName}SitePermissions`),
+          Roles: ["ExistingExecutionRole"],
+        })
+        expect(JSON.stringify(template.toJSON())).not.toContain("Fn::ImportValue")
         return Object.values(functions)
           .map((fn) => fn.Properties.FunctionName)
           .filter((name) => name !== undefined)
       })
       expect(names).toHaveLength(8)
       expect(new Set(names).size).toBe(names.length)
+    })
+
+    it.each(["import", "resource-grants", "withoutPolicyUpdates"])(
+      "rejects immutable roles rather than silently dropping grants: %s",
+      (mode) => {
+        const role =
+          mode === "withoutPolicyUpdates"
+            ? new Role(stack, "Role", {
+                assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+              }).withoutPolicyUpdates()
+            : Role.fromRoleArn(
+                stack,
+                "Immutable",
+                "arn:aws:iam::123456789012:role/Existing",
+                { mutable: false, addGrantsToResources: mode === "resource-grants" }
+              )
+        expect(
+          () =>
+            new NextjsSite(stack, "Site", {
+              openNextPath,
+              defaultFunctionProps: { role },
+            })
+        ).toThrow(/mutable/)
+      }
+    )
+
+    it.each(["default-first", "supplied-first", "distinct"])(
+      "rejects incompatible singleton roles: %s",
+      (configuration) => {
+        const first = new Role(stack, "FirstRole", {
+          assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+        })
+        const second = new Role(stack, "SecondRole", {
+          assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+        })
+        new NextjsSite(stack, "First", {
+          openNextPath,
+          defaultFunctionProps: {
+            role: configuration === "default-first" ? undefined : first,
+          },
+        })
+        expect(
+          () =>
+            new NextjsSite(stack, "Second", {
+              openNextPath,
+              defaultFunctionProps: {
+                role: configuration === "supplied-first" ? undefined : second,
+              },
+            })
+        ).toThrow(/Incompatible S3 auto-delete singleton roles/)
+      }
+    )
+
+    it("includes DNS certificate helpers in supplied-role coverage", () => {
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      new NextjsSite(stack, "Site", {
+        openNextPath,
+        defaultFunctionProps: { role },
+        customDomain: {
+          domainName: "example.com",
+          hostedZone: HostedZone.fromHostedZoneAttributes(stack, "Zone", {
+            hostedZoneId: "Z1234",
+            zoneName: "example.com",
+          }),
+        },
+      })
+      const template = Template.fromStack(stack)
+      template.resourceCountIs("AWS::IAM::Role", 1)
+      for (const fn of Object.values(template.findResources("AWS::Lambda::Function"))) {
+        expect(fn.Properties.Role).toEqual(stack.resolve(role.roleArn))
+      }
+    })
+
+    it.each([false, true])(
+      "reuses log-retention roles, preserving explicit override: %s",
+      (override) => {
+        const role = new Role(stack, "Role", {
+          assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+        })
+        const logRetentionRole = override
+          ? new Role(stack, "LoggingRole", {
+              assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+            })
+          : undefined
+        new NextjsSite(stack, "Site", {
+          openNextPath,
+          defaultFunctionProps: {
+            role,
+            logRetention: RetentionDays.ONE_WEEK,
+            logRetentionRole,
+          },
+        })
+        const template = Template.fromStack(stack)
+        template.resourceCountIs("AWS::IAM::Role", override ? 2 : 1)
+        const functions = template.findResources("AWS::Lambda::Function")
+        for (const [id, fn] of Object.entries(functions)) {
+          expect(fn.Properties.Role).toEqual(
+            stack.resolve(
+              id.startsWith("LogRetention")
+                ? (logRetentionRole ?? role).roleArn
+                : role.roleArn
+            )
+          )
+        }
+        expect(JSON.stringify(template.findResources("AWS::IAM::Policy"))).toContain(
+          "logs:PutRetentionPolicy"
+        )
+      }
+    )
+
+    it("rejects a pre-existing generated auto-delete provider", () => {
+      new Bucket(stack, "OtherBucket", {
+        autoDeleteObjects: true,
+        removalPolicy: RemovalPolicy.DESTROY,
+      })
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      expect(
+        () =>
+          new NextjsSite(stack, "Site", {
+            openNextPath,
+            defaultFunctionProps: { role },
+          })
+      ).toThrow(/Incompatible/)
+    })
+
+    it("preserves inline auto-delete code without generating a role", () => {
+      stack.node.setContext("@aws-cdk/core:inlineCustomResourceIfPossible", true)
+      const role = Role.fromRoleArn(
+        stack,
+        "Role",
+        "arn:aws:iam::123456789012:role/Existing"
+      )
+      new NextjsSite(stack, "Site", { openNextPath, defaultFunctionProps: { role } })
+      const template = Template.fromStack(stack)
+      template.resourceCountIs("AWS::IAM::Role", 0)
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Role: role.roleArn,
+        Code: { ZipFile: Match.stringLikeRegexp("aws-cdk:auto-delete-objects") },
+      })
+      const provider = stack.node.findChild(
+        "Custom::S3AutoDeleteObjectsCustomResourceProvider"
+      )
+      expect(
+        provider.node.findAll().filter((node) => node instanceof Asset)
+      ).toHaveLength(0)
+    })
+
+    it("keeps caller-managed decryption grants for encrypted staging buckets", () => {
+      const keyArn =
+        "arn:aws:kms:us-east-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+      const encryptedStack = new Stack(undefined, "EncryptedStaging", {
+        env: { account: "123456789012", region: "us-east-1" },
+        synthesizer: new DefaultStackSynthesizer({
+          fileAssetsBucketName: "encrypted-staging",
+        }),
+      })
+      const role = new Role(encryptedStack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      Key.fromKeyArn(encryptedStack, "StagingKey", keyArn).grantDecrypt(role)
+      new NextjsSite(encryptedStack, "Site", {
+        openNextPath,
+        defaultFunctionProps: { role },
+      })
+      const template = Template.fromStack(encryptedStack)
+      template.resourceCountIs("AWS::IAM::Role", 1)
+      template.hasResourceProperties("AWS::IAM::Policy", {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({ Action: "kms:Decrypt", Resource: keyArn }),
+          ]),
+        },
+      })
+      template.hasResourceProperties("Custom::CDKBucketDeployment", {
+        SourceBucketNames: ["encrypted-staging"],
+      })
+    })
+
+    it("rejects an immutable explicit log-retention override", () => {
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      const loggingRole = new Role(stack, "LoggingRole", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      }).withoutPolicyUpdates()
+      expect(
+        () =>
+          new NextjsSite(stack, "Site", {
+            openNextPath,
+            defaultFunctionProps: {
+              role,
+              logRetentionRole: loggingRole,
+              logRetention: RetentionDays.ONE_WEEK,
+            },
+          })
+      ).toThrow(/mutable/)
+    })
+
+    it("rejects a pre-existing incompatible log-retention singleton", () => {
+      new LogRetention(stack, "OtherRetention", {
+        logGroupName: "/other/function",
+        retention: RetentionDays.ONE_WEEK,
+      })
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      expect(
+        () =>
+          new NextjsSite(stack, "Site", {
+            openNextPath,
+            defaultFunctionProps: { role, logRetention: RetentionDays.ONE_WEEK },
+          })
+      ).toThrow("Incompatible LogRetention singleton execution role")
+    })
+
+    it("rejects a pre-existing incompatible bucket-deployment singleton", () => {
+      new BucketDeployment(stack, "OtherDeployment", {
+        destinationBucket: new Bucket(stack, "OtherDestination"),
+        sources: [Source.asset(path.join(openNextPath, "../assets"))],
+      })
+      const role = new Role(stack, "Role", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      })
+      expect(
+        () =>
+          new NextjsSite(stack, "Site", {
+            openNextPath,
+            defaultFunctionProps: { role },
+          })
+      ).toThrow("Incompatible BucketDeployment singleton execution role")
     })
   })
 

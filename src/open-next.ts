@@ -60,6 +60,9 @@ import {
 } from "aws-cdk-lib/core"
 import { Provider } from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
+import { SuppliedRoleBucketAutoDeleteProvider } from "./bucket-auto-delete-provider"
+import { scopedAssetSource } from "./deployment-source"
+import { grantLogging, hasExecutionRole, sameRole } from "./role-helpers"
 
 type BaseFunction = {
   handler: string
@@ -202,8 +205,13 @@ export interface NextjsSiteProps {
   /**
    * Props for the default server Lambda function. The role, when supplied, is
    * also reused by all other site Lambda functions and custom-resource providers.
-   * Required permissions are granted to this shared role. CDK-internal S3
-   * deployment and bucket auto-delete helpers do not use this role.
+   * This includes S3 deployment, bucket auto-delete and DNS certificate helpers.
+   * Required permissions are attached to this mutable, Lambda-trusted role.
+   * All sites in a stack must use the same role (or all omit it), because S3
+   * helpers are stack singletons. Imported roles shared across stacks require
+   * a distinct defaultPolicyName per stack. Explicit function role inputs take
+   * precedence over this default wherever supported, including logRetentionRole
+   * for the deprecated log-retention helper. That helper is also a stack singleton.
    */
   readonly defaultFunctionProps?: DefaultFunctionProps
 
@@ -389,6 +397,7 @@ export class NextjsSite extends Construct {
       )
     }
 
+    SuppliedRoleBucketAutoDeleteProvider.prepare(this, props.defaultFunctionProps?.role)
     this.bucket = new Bucket(this, "S3Bucket", {
       publicReadAccess: false,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
@@ -396,6 +405,13 @@ export class NextjsSite extends Construct {
       removalPolicy: RemovalPolicy.DESTROY,
       enforceSSL: true,
     })
+    const autoDeleteProvider = Stack.of(this).node.tryFindChild(
+      // CDK aws-s3 AutoDeleteObjectsProvider.getOrCreateProvider's stack child.
+      "Custom::S3AutoDeleteObjectsCustomResourceProvider"
+    )
+    if (autoDeleteProvider instanceof SuppliedRoleBucketAutoDeleteProvider) {
+      autoDeleteProvider.assertBound()
+    }
     this.table = this.needsRevalidationTable()
       ? this.createRevalidationTable()
       : undefined
@@ -448,6 +464,7 @@ export class NextjsSite extends Construct {
       domainName,
       hostedZone,
       region: "us-east-1",
+      customResourceRole: this.props.defaultFunctionProps?.role,
     })
   }
 
@@ -522,12 +539,31 @@ export class NextjsSite extends Construct {
       ...restOrigins
     } = this.openNextOutput.origins
     for (const copy of s3Origin.copy) {
-      new BucketDeployment(this, `OpenNextBucketDeployment${copy.from}`, {
-        sources: [Source.asset(path.join(this.openNextPath, "..", copy.from))],
-        destinationBucket: this.bucket,
-        destinationKeyPrefix: copy.to,
-        prune: false,
-      })
+      const deployment = new BucketDeployment(
+        this,
+        `OpenNextBucketDeployment${copy.from}`,
+        {
+          role: defaultFunctionProps?.role,
+          sources: [
+            defaultFunctionProps?.role
+              ? scopedAssetSource(path.join(this.openNextPath, "..", copy.from))
+              : Source.asset(path.join(this.openNextPath, "..", copy.from)),
+          ],
+          destinationBucket: this.bucket,
+          destinationKeyPrefix: copy.to,
+          prune: false,
+        }
+      )
+      if (
+        defaultFunctionProps?.role &&
+        !sameRole(this, deployment.handlerRole, defaultFunctionProps.role)
+      ) {
+        throw new Error(
+          "Incompatible BucketDeployment singleton execution role. Use the same role " +
+            "for all deployments sharing this stack singleton, or omit roles for all. " +
+            "Reuse the same IRole object to avoid differently tokenized ARN imports."
+        )
+      }
     }
     const origins = {
       s3: S3BucketOrigin.withOriginAccessControl(this.bucket, {
@@ -710,6 +746,25 @@ export class NextjsSite extends Construct {
   }
 
   private createSiteFunction(id: string, props: FunctionProps) {
+    const logRetentionRole =
+      props.logRetentionRole ?? this.props.defaultFunctionProps?.role
+    if (props.logRetention && logRetentionRole) {
+      const existing = Stack.of(this).node.tryFindChild(
+        // CDK aws-logs LogRetention.ensureSingletonLogRetentionFunction's ID.
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a"
+      )
+      if (
+        existing &&
+        (!hasExecutionRole(existing) || !sameRole(this, existing.role, logRetentionRole))
+      ) {
+        throw new Error(
+          "Incompatible LogRetention singleton execution role. Use the same " +
+            "logRetentionRole for all users of this stack singleton, or omit roles for all. " +
+            "Reuse the same IRole object to avoid differently tokenized ARN imports."
+        )
+      }
+      grantLogging(logRetentionRole)
+    }
     // Explicit names let shared-role invocation policies avoid references to
     // functions that depend on the same role policy (a CloudFormation cycle).
     const prefix = Names.uniqueResourceName(this, { maxLength: 32 })
@@ -726,6 +781,7 @@ export class NextjsSite extends Construct {
         : undefined)
     const fn = new CdkFunction(this, id, {
       ...props,
+      logRetentionRole,
       functionName,
     })
     if (functionName) {

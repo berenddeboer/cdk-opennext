@@ -1,0 +1,27 @@
+{
+  "stateful": [
+    "TestOpenNextS3Bucket15D68F5C",
+    "TestOpenNextRevalidationTable25E68935",
+    "TestOpenNextRevalidationQueueC716319C"
+  ],
+  "tokens": {
+    "TestOpenNextS3BucketAutoDeleteObjectsCustomResourceBC9D624B": {
+      "Fn::GetAtt": ["CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F", "Arn"]
+    },
+    "TestOpenNextRevalidationResource5AC9BB97": {
+      "Fn::GetAtt": ["TestOpenNextRevalidationProviderframeworkonEventDF8416BF", "Arn"]
+    },
+    "TestOpenNextOpenNextBucketDeploymentassetsCustomResource534D8600": {
+      "Fn::GetAtt": ["CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C81C01536", "Arn"]
+    },
+    "TestOpenNextPrewarmerResourceC53362AB": {
+      "Fn::GetAtt": ["TestOpenNextPrewarmerProviderframeworkonEvent6E7B45FD", "Arn"]
+    }
+  },
+  "providerFunctions": [
+    "TestOpenNextRevalidationProviderframeworkonEventDF8416BF",
+    "TestOpenNextPrewarmerProviderframeworkonEvent6E7B45FD",
+    "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+    "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C81C01536"
+  ]
+}
