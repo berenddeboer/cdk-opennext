@@ -240,11 +240,11 @@ describe("NextjsSite", () => {
           }
         }
         for (const id of baseline.providerFunctions) {
-          expect(after[id].Properties.FunctionName).toEqual(
-            before[id].Properties.FunctionName
-          )
-          expect(after[id].Properties.Code).toEqual(before[id].Properties.Code)
-          expect(after[id].Properties.Handler).toEqual(before[id].Properties.Handler)
+          for (const property of [
+            "FunctionName", "Code", "Handler", "Timeout", "MemorySize", "Runtime",
+          ]) {
+            expect(after[id].Properties[property]).toEqual(before[id].Properties[property])
+          }
         }
         const oldRoles = Object.keys(before).filter(
           (id) => before[id].Type === "AWS::IAM::Role"

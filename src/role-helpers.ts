@@ -7,6 +7,9 @@ import {
 import { Stack } from "aws-cdk-lib/core"
 import { Construct, Dependable } from "constructs"
 
+// IRole owns its attachment path in its defining stack. Cross-stack consumers
+// must import separately with distinct policy names, as documented in README;
+// reusing one IRole object cannot provide independent stack-local ownership.
 const loggingGrants = new WeakMap<IRole, AddToPrincipalPolicyResult>()
 
 /** @internal */
